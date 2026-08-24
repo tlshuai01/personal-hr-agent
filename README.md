@@ -8,14 +8,28 @@
 - 实现规格：[`docs/PERSONAL_HR_AGENT_SPEC.md`](docs/PERSONAL_HR_AGENT_SPEC.md)
 - 产品说明：[`docs/README.md`](docs/README.md)
 
-## Git
+## Git / GitHub
+
+本地仓库已初始化（`main` 分支，首次提交已完成）。
+
+远程（已配置）：
 
 ```bash
-git init   # 已完成
-git status
+git remote -v
+# origin  https://github.com/dr-tianlin/personal-hr-agent.git
 ```
 
-如需推送到 Cursor / GitHub 远程，在本目录配置 `origin` 后 `git push -u origin main`。
+**首次推送前**，在 GitHub 创建空仓库（不要勾选 README）：
+
+https://github.com/new → 名称 `personal-hr-agent` → Create repository
+
+然后：
+
+```bash
+git push -u origin main
+```
+
+账号主页：https://github.com/dr-tianlin/
 
 ## 快速开始
 
