@@ -1,0 +1,116 @@
+:root {
+  --bg: #f6f3ee;
+  --bg-accent: #e8efe9;
+  --ink: #1c1b19;
+  --muted: #5c5a55;
+  --line: #d9d2c5;
+  --brand: #1f5c4a;
+  --brand-soft: #d7ebe3;
+  --danger: #9b2c2c;
+  --card: #fffdf8;
+  --shadow: 0 10px 30px rgba(28, 27, 25, 0.06);
+  --radius: 14px;
+  --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: var(--font);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 10% 0%, #efe7d8 0%, transparent 40%),
+    radial-gradient(circle at 90% 10%, var(--bg-accent) 0%, transparent 35%),
+    var(--bg);
+}
+
+a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.container {
+  width: min(960px, calc(100% - 2rem));
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.4rem;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  background: var(--brand);
+  color: #fff;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn.secondary {
+  background: transparent;
+  color: var(--brand);
+  border: 1px solid var(--brand);
+}
+
+.btn.danger {
+  background: var(--danger);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  background: #fff;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 0.8rem;
+}
+
+.badge.warn {
+  background: #f7e3c8;
+  color: #8a4b10;
+}
+
+.badge.bad {
+  background: #f5d5d5;
+  color: var(--danger);
+}

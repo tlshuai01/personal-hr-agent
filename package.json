@@ -1,0 +1,28 @@
+{
+  "name": "personal-hr-agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "knowledge:index": "tsx scripts/index-knowledge.ts",
+    "eval": "tsx scripts/run-eval.ts",
+    "eval:retrieval": "tsx scripts/run-eval.ts --retrieval",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "dependencies": {
+    "next": "^15.1.6",
+    "openai": "^4.82.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
