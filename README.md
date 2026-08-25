@@ -56,3 +56,15 @@ npm run dev
 | Docker | 可选 | 本机已有，可用于部署或跑 Ollama 容器 |
 
 无 LLM 时仍可：`knowledge:index` / `smoke` / `eval:retrieval` / 管理台建链接；**真正对话**需要配置 `LLM_*`。
+
+## Boss 直聘桥接（分阶段试行）
+
+见 [`boss-bridge/README.md`](boss-bridge/README.md)。
+
+```bash
+# 1. 根目录 .env.local 设置 BOSS_BRIDGE_SECRET
+# 2. npm run dev
+# 3. boss-bridge 目录按 README 跑 C0 → C1 → C2
+python boss-bridge/main.py --phase c0   # 验证登录
+python boss-bridge/main.py --phase c1   # dry-run（默认）
+```

@@ -1,0 +1,330 @@
+"""Boss 直聘 transport: direct HTTP (page=1+) + boss-cli fallback."""
+
+from __future__ import annotations
+
+import json
+import logging
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+LOG = logging.getLogger("boss-bridge.transport")
+
+BASE_URL = "https://www.zhipin.com"
+FRIEND_LIST_URL = "/wapi/zprelation/friend/getGeekFriendList.json"
+CHAT_REFERER = "https://www.zhipin.com/web/geek/chat"
+
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Origin": BASE_URL,
+    "Referer": CHAT_REFERER,
+}
+
+
+class BossTransportError(RuntimeError):
+    pass
+
+
+class BossTransport:
+    def __init__(self, cli_bin: str = "boss", timeout_sec: int = 60) -> None:
+        self.cli_bin = cli_bin
+        self.timeout_sec = timeout_sec
+        if not shutil.which(cli_bin):
+            LOG.warning(
+                "boss-cli not found on PATH (%s). Install: pip install kabi-boss-cli",
+                cli_bin,
+            )
+
+    def _run(self, *args: str) -> dict[str, Any]:
+        cmd = [self.cli_bin, *args]
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_sec,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise BossTransportError(f"boss-cli timeout: {' '.join(cmd)}") from exc
+        except FileNotFoundError as exc:
+            raise BossTransportError(
+                f"boss-cli not found ({self.cli_bin}). pip install kabi-boss-cli && boss login"
+            ) from exc
+
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+
+        if proc.returncode != 0:
+            raise BossTransportError(
+                f"boss-cli failed ({proc.returncode}): {' '.join(cmd)}\nstderr: {stderr}\nstdout: {stdout}"
+            )
+
+        if not stdout:
+            raise BossTransportError(f"boss-cli empty output: {' '.join(cmd)}")
+
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise BossTransportError(f"boss-cli non-json output: {stdout[:500]}") from exc
+
+        if isinstance(payload, dict) and payload.get("ok") is False:
+            raise BossTransportError(
+                payload.get("error") or payload.get("message") or "boss-cli error"
+            )
+
+        return payload if isinstance(payload, dict) else {"data": payload}
+
+    @staticmethod
+    def _unwrap_list(payload: dict[str, Any]) -> list[dict]:
+        data = payload.get("data", payload)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("result", "friendList", "friends", "list", "items"):
+                val = data.get(key)
+                if isinstance(val, list):
+                    return val
+        return []
+
+    @staticmethod
+    def _normalize_friend(raw: dict[str, Any]) -> dict[str, Any]:
+        """Map Boss API fields onto the shape main.py expects."""
+        out = dict(raw)
+        if not out.get("jobName"):
+            out["jobName"] = out.get("title") or out.get("sourceTitle") or ""
+        if not out.get("brandName"):
+            out["brandName"] = out.get("company") or ""
+        # lastMessageInfo may carry richer text
+        info = out.get("lastMessageInfo")
+        if isinstance(info, dict) and not (out.get("lastMsg") or "").strip():
+            out["lastMsg"] = (
+                info.get("body") or info.get("text") or info.get("content") or ""
+            )
+        # unread helper for heuristics
+        if "unreadCount" not in out and "unreadMsgCount" in out:
+            out["unreadCount"] = out.get("unreadMsgCount")
+        return out
+
+    def status(self) -> dict[str, Any]:
+        return self._run("status", "--json")
+
+    def list_friends(self, *, max_pages: int = 3) -> list[dict]:
+        """Fetch geek chat list.
+
+        Note: Boss API returns empty zpData unless ``page`` is provided.
+        boss-cli's ``boss chat`` omits page → empty list; we call HTTP directly.
+        """
+        cookies = self._load_cookie_dict()
+        if cookies:
+            try:
+                friends = self._list_friends_http(cookies, max_pages=max_pages)
+                if friends:
+                    return friends
+                LOG.warning("HTTP friend list empty; falling back to boss chat")
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("HTTP friend list failed (%s); falling back to boss chat", exc)
+
+        payload = self._run("chat", "--json")
+        friends = self._unwrap_list(payload)
+        return [self._normalize_friend(f) for f in friends if isinstance(f, dict)]
+
+    def _list_friends_http(self, cookies: dict[str, str], *, max_pages: int) -> list[dict]:
+        all_friends: list[dict] = []
+        seen: set[str] = set()
+        with httpx.Client(
+            base_url=BASE_URL,
+            headers=DEFAULT_HEADERS,
+            cookies=cookies,
+            timeout=self.timeout_sec,
+            follow_redirects=True,
+        ) as client:
+            for page in range(1, max_pages + 1):
+                resp = client.get(FRIEND_LIST_URL, params={"page": page})
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("code") != 0:
+                    raise BossTransportError(
+                        f"friend list code={data.get('code')}: {data.get('message')}"
+                    )
+                zp = data.get("zpData") or {}
+                batch = zp.get("result") if isinstance(zp, dict) else None
+                if not isinstance(batch, list) or not batch:
+                    break
+                for item in batch:
+                    if not isinstance(item, dict):
+                        continue
+                    key = str(
+                        item.get("encryptUid")
+                        or item.get("uid")
+                        or item.get("securityId")
+                        or id(item)
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    all_friends.append(self._normalize_friend(item))
+                if len(batch) < 50:
+                    # last page is usually shorter; Boss often returns 100 then less
+                    break
+        return all_friends
+
+    def fetch_history(self, friend: dict, *, limit: int = 20) -> list[dict]:
+        """Fetch chat history if boss-cli supports it; else synthesize from lastMsg."""
+        friend_id = friend.get("friendId") or friend.get("encryptFriendId") or friend.get(
+            "encryptUid"
+        )
+        if friend_id:
+            for subcmd in (
+                ("chat", "history", str(friend_id), "--json"),
+                ("chat", "messages", str(friend_id), "--json"),
+            ):
+                try:
+                    payload = self._run(*subcmd)
+                    raw = self._unwrap_list(payload)
+                    if raw:
+                        return self._normalize_history(raw, limit)
+                except BossTransportError:
+                    continue
+
+        last = (friend.get("lastMsg") or "").strip()
+        if last:
+            # Prefer treating recruiter lastMsg as user turn when unread > 0
+            return [{"role": "user", "content": last}]
+        return []
+
+    @staticmethod
+    def _normalize_history(raw: list[dict], limit: int) -> list[dict]:
+        out: list[dict] = []
+        for item in raw[-limit:]:
+            text = (
+                item.get("body")
+                or item.get("text")
+                or item.get("content")
+                or item.get("msg")
+                or ""
+            ).strip()
+            if not text:
+                continue
+            sender = item.get("from") or item.get("sender") or item.get("fromUid")
+            role = "assistant" if str(sender).lower() in ("me", "self", "geek", "0") else "user"
+            if item.get("isSelf") is True:
+                role = "assistant"
+            elif item.get("isSelf") is False:
+                role = "user"
+            out.append({"role": role, "content": text})
+        return out
+
+    def send_message(self, friend: dict, text: str) -> None:
+        """Send reply — tries boss-cli subcommand, then direct HTTP with stored cookie."""
+        friend_id = (
+            friend.get("friendId")
+            or friend.get("encryptFriendId")
+            or friend.get("uid")
+            or friend.get("encryptUid")
+        )
+        if not friend_id:
+            raise BossTransportError("friend has no id for send")
+
+        last_err: Exception | None = None
+        for subcmd in (
+            ("chat", "send", str(friend_id), text, "--json"),
+            ("send", str(friend_id), text, "--json"),
+        ):
+            try:
+                self._run(*subcmd)
+                return
+            except BossTransportError as exc:
+                last_err = exc
+                LOG.debug("cli send failed (%s): %s", subcmd[0], exc)
+
+        try:
+            self._send_via_http(str(friend_id), text)
+        except Exception as exc:
+            raise BossTransportError(
+                f"send failed for friend {friend_id}: {exc}"
+            ) from (last_err or exc)
+
+    def _send_via_http(self, friend_id: str, text: str) -> None:
+        cookies = self._load_cookie_dict()
+        if not cookies:
+            raise BossTransportError("no boss cookie; run `boss login`")
+
+        urls = [
+            f"{BASE_URL}/wapi/zpchat/geek/send",
+            f"{BASE_URL}/wapi/zpchat/geek/message/send",
+        ]
+        bodies = [
+            {"friendId": friend_id, "msg": text},
+            {"toId": friend_id, "content": text},
+        ]
+
+        with httpx.Client(
+            headers=DEFAULT_HEADERS,
+            cookies=cookies,
+            timeout=30,
+            follow_redirects=True,
+        ) as client:
+            for url in urls:
+                for body in bodies:
+                    resp = client.post(url, json=body)
+                    if resp.status_code != 200:
+                        continue
+                    try:
+                        data = resp.json()
+                    except json.JSONDecodeError:
+                        data = {}
+                    if data.get("code") == 0:
+                        return
+            raise BossTransportError("HTTP send endpoints rejected request")
+
+    def _load_cookie_dict(self) -> dict[str, str]:
+        home = Path.home()
+        candidates = [
+            home / ".config" / "boss-cli" / "credential.json",
+            home / ".config" / "boss-cli" / "credentials.json",
+            home / ".boss-cli" / "credentials.json",
+            home / ".kabi-boss-cli" / "credentials.json",
+        ]
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            cookies = data.get("cookies")
+            if isinstance(cookies, dict) and cookies:
+                return {str(k): str(v) for k, v in cookies.items() if v is not None}
+            for key in ("cookie", "Cookie"):
+                val = data.get(key)
+                if isinstance(val, str) and val.strip():
+                    return self._parse_cookie_header(val)
+        return {}
+
+    @staticmethod
+    def _parse_cookie_header(header: str) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for part in header.split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            k, v = part.split("=", 1)
+            out[k.strip()] = v.strip()
+        return out
+
+    def _load_cookie(self) -> str | None:
+        cookies = self._load_cookie_dict()
+        if not cookies:
+            return None
+        return "; ".join(f"{k}={v}" for k, v in cookies.items())

@@ -3,6 +3,7 @@ import { config } from "@/lib/config";
 import { streamChatCompletion } from "@/lib/llm";
 import { formatRetrievedContext, SYSTEM_PROMPT } from "@/lib/prompt";
 import { retrieve } from "@/lib/rag";
+import { detectSensitiveUserMessage } from "@/lib/reply";
 import { saveChatMessage } from "@/lib/db";
 import { incrementMessageCount, validateShareAccess } from "@/lib/share";
 
@@ -49,6 +50,14 @@ export async function POST(req: Request) {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   if (!lastUser) {
     return Response.json({ error: "missing user message" }, { status: 400 });
+  }
+
+  const sensitive = detectSensitiveUserMessage(lastUser.content);
+  if (sensitive) {
+    return Response.json(
+      { error: "blocked", blockReason: sensitive },
+      { status: 422 },
+    );
   }
 
   saveChatMessage(token, "user", lastUser.content);

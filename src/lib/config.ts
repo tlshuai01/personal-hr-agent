@@ -20,6 +20,7 @@ export const config = {
     env("KNOWLEDGE_INDEX_PATH", "data/index.json"),
   ),
   knowledgeDir: path.resolve(process.cwd(), env("KNOWLEDGE_DIR", "knowledge")),
+  bossBridgeSecret: env("BOSS_BRIDGE_SECRET"),
 };
 
 export function useApiEmbedding(): boolean {
