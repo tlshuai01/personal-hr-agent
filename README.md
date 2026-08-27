@@ -16,7 +16,7 @@
 
 ```bash
 git remote -v
-# origin  https://github.com/dr-tianlin/personal-hr-agent.git
+# origin  git@github.com:tlshuai01/personal-hr-agent.git
 ```
 
 **首次推送前**，在 GitHub 创建空仓库（不要勾选 README）：
@@ -29,7 +29,7 @@ https://github.com/new → 名称 `personal-hr-agent` → Create repository
 git push -u origin main
 ```
 
-账号主页：https://github.com/dr-tianlin/
+账号主页：https://github.com/tlshuai01
 
 ## 快速开始
 
