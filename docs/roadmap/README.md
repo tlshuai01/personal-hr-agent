@@ -33,6 +33,7 @@
 | 渠道 · 猎聘 | [channels/LIEPIN.md](./channels/LIEPIN.md) | 占位 |
 | 渠道总览 | [channels/README.md](./channels/README.md) | — |
 | 安全与密钥 | [security/SECRETS.md](./security/SECRETS.md) | **强制** |
+| **知识库分类** | [knowledge/TAXONOMY.md](./knowledge/TAXONOMY.md) | 规划 |
 | 评测 | [eval/ROADMAP.md](./eval/ROADMAP.md) | 预留 |
 | 管理台 | [admin/ROADMAP.md](./admin/ROADMAP.md) | 预留 |
 
