@@ -9,6 +9,7 @@ ROOT = Path(r"C:\Users\tl_94\PycharmProjects\personal-knowledge")
 OLD = Path(r"C:\Users\tl_94\PycharmProjects\personal-hr-agent\knowledge")
 OBS = Path(r"D:\obsidian\repo\知识库")
 GDS = Path(r"C:\Users\tl_94\PycharmProjects\myAIProjects\gds-ai-experience\docs")
+RESUMES = Path(r"C:\Users\tl_94\PycharmProjects\myAIProjects\docs")
 
 DIRS = [
     "_meta",
@@ -19,6 +20,7 @@ DIRS = [
     "05-技能与问答",
     "06-原始资料-gds",
     "07-原始资料-obsidian",
+    "08-简历参考",
 ]
 
 # (src relative to base, dst relative to ROOT)
@@ -106,6 +108,13 @@ def main() -> None:
         src = GDS / rel
         safe = rel.replace("/", "__").replace("\\", "__")
         copy_file(src, ROOT / "06-原始资料-gds" / safe)
+
+    resume_map = {
+        "简历-田麟-6年经验-后端AI方向.md": "08-简历参考/简历-后端AI方向.md",
+        "简历-田麟-6年-数据开发+ai.md": "08-简历参考/简历-数据开发+ai.md",
+    }
+    for src_name, dst_rel in resume_map.items():
+        copy_file(RESUMES / src_name, ROOT / dst_rel)
 
     print("done.")
 

@@ -29,6 +29,7 @@
 | RAG | [rag/DESIGN.md](./rag/DESIGN.md) | 一阶段已实现；二阶段待增强 |
 | 记忆 | [memory/DESIGN.md](./memory/DESIGN.md) | 预留 |
 | Chat API | [chat/API.md](./chat/API.md) | 部分实现；待统一契约 |
+| **按岗位 Persona** | [chat/PERSONA_BY_ROLE.md](./chat/PERSONA_BY_ROLE.md) | **待实现** |
 | 渠道 · Boss | [channels/BOSS.md](./channels/BOSS.md) | C0 完成，C1 进行中 |
 | 渠道 · 猎聘 | [channels/LIEPIN.md](./channels/LIEPIN.md) | 占位 |
 | 渠道总览 | [channels/README.md](./channels/README.md) | — |
@@ -50,6 +51,7 @@
 
 ### P1 — Chat Core 稳固
 
+- [ ] **按岗位 Persona + 知识库检索偏好**（后端轨 / 数据轨）→ [`chat/PERSONA_BY_ROLE.md`](./chat/PERSONA_BY_ROLE.md)
 - [ ] 统一 Chat API 契约（guest share + internal channel）
 - [ ] RAG：检索质量 / hybrid / rerank 可选增强
 - [ ] 敏感话题策略可配置化
