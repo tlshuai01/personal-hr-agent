@@ -6,12 +6,14 @@
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
-| **C0** | **已通过** | Cookie 登录 OK；沟通列表可拉取（约 300 会话） |
-| **C1** | 未跑 | dry-run，需 `npm run dev` + LLM + `BOSS_BRIDGE_SECRET` |
+| **C0** | **已通过** | Cookie 登录 OK；沟通列表可拉取（约 300 会话）；需 `page=1` |
+| **C1** | 进行中 | `python main.py --phase c1 --once --limit 3` dry-run |
 | **C2** | 未开 | 自动发送，确认 C1 后再开 |
 | **C3** | 未开 | 多轮历史 |
 
-更新日期：2026-08-25
+更新日期：2026-08-27
+
+远程仓库：https://github.com/tlshuai01/personal-hr-agent
 
 ## C0 结论
 
@@ -25,11 +27,15 @@
 
 ```bash
 # 根目录 .env.local：LLM_* + BOSS_BRIDGE_SECRET
+npm install
 npm run dev
 
+# 另开终端
+npm run smoke:bridge   # 验证 internal reply API
+
 cd boss-bridge
-# .env 中 BOSS_BRIDGE_SECRET 与上面一致
-python main.py --phase c1
+copy .env.example .env   # BOSS_BRIDGE_SECRET 与 .env.local 一致
+python main.py --phase c1 --once --limit 3
 ```
 
 观察日志中的 `[DRY-RUN]` / `[BLOCKED]`，**不要**急着开 C2。

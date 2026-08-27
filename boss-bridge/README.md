@@ -18,6 +18,7 @@ Boss 直聘 (Cookie)  ←→  boss-bridge (Python)  ←→  POST /api/internal/r
 |------|------|------|
 | **C0** | `--phase c0` | 验证登录 + 拉会话列表，一次性 |
 | **C1** | `--phase c1`（默认） | 轮询未读 → Agent 生成回复 → **只打日志，不发 Boss** |
+| **C1 试跑** | `--phase c1 --once --limit 3` | 单次轮询，最多处理 3 条未读（推荐先试） |
 | **C2** | `--phase c2` | 非敏感题自动发送；敏感题 blocked |
 | **C3** | `--phase c3` | 多轮：拉历史后再回复（C2 发送逻辑） |
 
