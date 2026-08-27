@@ -7,6 +7,7 @@
 - 项目约定：[`CLAUDE.md`](CLAUDE.md)
 - 实现规格：[`docs/PERSONAL_HR_AGENT_SPEC.md`](docs/PERSONAL_HR_AGENT_SPEC.md)
 - 产品说明：[`docs/README.md`](docs/README.md)
+- **待开发 / 路线图**：[`docs/roadmap/README.md`](docs/roadmap/README.md)
 
 ## Git / GitHub
 

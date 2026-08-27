@@ -53,11 +53,13 @@ LLM_MODEL=qwen2.5
 
 ```
 LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_API_KEY=sk-...
+LLM_API_KEY=sk-你的密钥
 LLM_MODEL=deepseek-chat
 ```
 
-Embedding 可留空：默认使用本地词袋向量，无需额外 API。
+Embedding 可留空：默认使用本地词袋向量，无需额外 API。检索评测不达标再配置 `EMBEDDING_*`。
+
+密钥策略：见 [`roadmap/security/SECRETS.md`](roadmap/security/SECRETS.md)
 
 ### 3. 填写知识库并建索引
 
