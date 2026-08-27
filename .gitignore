@@ -11,6 +11,14 @@ boss-bridge/.venv/
 .env
 .env.local
 .env*.local
+
+# 个人知识库仅在本地 ../personal-knowledge，永不提交
+knowledge/**
+!knowledge/MOVED.md
+!knowledge/.gitkeep
+
+# 上级目录本地知识库（若误放在 monorepo 内）
+../personal-knowledge/
 *.log
 .DS_Store
 next-env.d.ts

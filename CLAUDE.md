@@ -50,6 +50,7 @@
 
 - **有文件改动及时 commit + push**（用户要求；勿积压未提交变更）
 - **密钥永不进 Git / remote**：仅 `.env.local`、`boss-bridge/.env`；详见 [`docs/roadmap/security/SECRETS.md`](docs/roadmap/security/SECRETS.md)
+- **个人知识库仅本地**：`C:\Users\tl_94\PycharmProjects\personal-knowledge`（含电话/邮箱），**禁止** `git add` / push；仓库内 `knowledge/` 已弃用，见 [`knowledge/MOVED.md`](knowledge/MOVED.md)
 - 先读 SPEC，再改代码；新增能力先更新 SPEC「必须/不做」再实现。
 - `knowledge/` 是唯一事实源；回答必须可追溯到检索片段，禁止编造经历。
 - 分享链接视为临时凭证：默认短过期、可设消息上限；勿把真实 `.env` / 敏感知识库提交公开仓库。

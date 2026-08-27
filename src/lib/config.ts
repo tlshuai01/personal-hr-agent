@@ -19,7 +19,10 @@ export const config = {
     process.cwd(),
     env("KNOWLEDGE_INDEX_PATH", "data/index.json"),
   ),
-  knowledgeDir: path.resolve(process.cwd(), env("KNOWLEDGE_DIR", "knowledge")),
+  knowledgeDir: path.resolve(
+    process.cwd(),
+    env("KNOWLEDGE_DIR", "C:/Users/tl_94/PycharmProjects/personal-knowledge"),
+  ),
   bossBridgeSecret: env("BOSS_BRIDGE_SECRET"),
 };
 
