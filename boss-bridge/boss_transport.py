@@ -180,7 +180,21 @@ class BossTransport:
         return all_friends
 
     def fetch_history(self, friend: dict, *, limit: int = 20) -> list[dict]:
-        """Fetch chat history if boss-cli supports it; else synthesize from lastMsg."""
+        """Fetch geek↔boss chat history via HTTP; fallback to lastMsg."""
+        boss_id = (
+            friend.get("encryptUid")
+            or friend.get("encryptBossId")
+            or friend.get("encryptFriendId")
+        )
+        cookies = self._load_cookie_dict()
+        if boss_id and cookies:
+            try:
+                raw = self._fetch_history_http(str(boss_id), cookies=cookies, limit=limit)
+                if raw:
+                    return self._normalize_history(raw, limit, boss_uid=friend.get("uid"))
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("HTTP history failed: %s", exc)
+
         friend_id = friend.get("friendId") or friend.get("encryptFriendId") or friend.get(
             "encryptUid"
         )
@@ -193,37 +207,96 @@ class BossTransport:
                     payload = self._run(*subcmd)
                     raw = self._unwrap_list(payload)
                     if raw:
-                        return self._normalize_history(raw, limit)
+                        return self._normalize_history(
+                            raw, limit, boss_uid=friend.get("uid")
+                        )
                 except BossTransportError:
                     continue
 
         last = (friend.get("lastMsg") or "").strip()
         if last:
-            # Prefer treating recruiter lastMsg as user turn when unread > 0
             return [{"role": "user", "content": last}]
         return []
 
+    def _fetch_history_http(
+        self,
+        boss_id: str,
+        *,
+        cookies: dict[str, str],
+        limit: int,
+    ) -> list[dict]:
+        with httpx.Client(
+            base_url=BASE_URL,
+            headers=DEFAULT_HEADERS,
+            cookies=cookies,
+            timeout=self.timeout_sec,
+            follow_redirects=True,
+        ) as client:
+            resp = client.get(
+                "/wapi/zpchat/geek/historyMsg",
+                params={
+                    "bossId": boss_id,
+                    "maxMsgId": 0,
+                    "c": max(limit, 20),
+                    "page": 1,
+                    "src": 0,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("code") != 0:
+                raise BossTransportError(
+                    f"history code={data.get('code')}: {data.get('message')}"
+                )
+            zp = data.get("zpData") or {}
+            msgs = zp.get("messages")
+            return msgs if isinstance(msgs, list) else []
+
+    def resume_already_sent(self, friend: dict, *, limit: int = 40) -> bool:
+        """Detect attachment resume already exchanged in this chat."""
+        boss_id = friend.get("encryptUid") or friend.get("encryptBossId")
+        cookies = self._load_cookie_dict()
+        if not boss_id or not cookies:
+            return False
+        try:
+            raw = self._fetch_history_http(str(boss_id), cookies=cookies, limit=limit)
+        except Exception as exc:  # noqa: BLE001
+            LOG.debug("resume_already_sent history failed: %s", exc)
+            return False
+        return history_indicates_resume_sent(raw)
+
     @staticmethod
-    def _normalize_history(raw: list[dict], limit: int) -> list[dict]:
+    def _normalize_history(
+        raw: list[dict],
+        limit: int,
+        *,
+        boss_uid: Any = None,
+    ) -> list[dict]:
         out: list[dict] = []
-        for item in raw[-limit:]:
-            text = (
-                item.get("body")
-                or item.get("text")
-                or item.get("content")
-                or item.get("msg")
-                or ""
-            ).strip()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            body = item.get("body") if isinstance(item.get("body"), dict) else {}
+            text = _message_text(item)
             if not text:
                 continue
-            sender = item.get("from") or item.get("sender") or item.get("fromUid")
-            role = "assistant" if str(sender).lower() in ("me", "self", "geek", "0") else "user"
+            from_obj = item.get("from") if isinstance(item.get("from"), dict) else {}
+            from_uid = from_obj.get("uid") or item.get("fromUid") or item.get("fromId")
             if item.get("isSelf") is True:
                 role = "assistant"
             elif item.get("isSelf") is False:
                 role = "user"
+            elif boss_uid is not None and from_uid is not None:
+                role = "user" if str(from_uid) == str(boss_uid) else "assistant"
+            else:
+                sender = item.get("sender") or from_uid
+                role = (
+                    "assistant"
+                    if str(sender).lower() in ("me", "self", "geek", "0")
+                    else "user"
+                )
             out.append({"role": role, "content": text})
-        return out
+        return out[-limit:]
 
     def send_message(self, friend: dict, text: str) -> None:
         """Send reply — tries boss-cli subcommand, then direct HTTP with stored cookie."""
@@ -328,3 +401,62 @@ class BossTransport:
         if not cookies:
             return None
         return "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+
+RESUME_SENT_MARKERS = (
+    "对方已查看了您的附件简历",
+    "您的附件简历已发送",
+    "附件简历已发送给对方",
+    "简历收到",
+    "已收到您的附件简历",
+    "我想要一份您的附件简历",
+)
+
+
+def _message_text(item: dict) -> str:
+    body = item.get("body") if isinstance(item.get("body"), dict) else {}
+    for key in ("text", "showText", "headTitle", "content", "msg"):
+        val = body.get(key) if body else None
+        if isinstance(val, str) and val.strip():
+            return _strip_html(val.strip())
+    dialog = body.get("dialog") if body else None
+    if isinstance(dialog, dict):
+        for key in ("text", "title", "content"):
+            val = dialog.get(key)
+            if isinstance(val, str) and val.strip():
+                return _strip_html(val.strip())
+    for key in ("body", "text", "content", "msg", "showText"):
+        val = item.get(key)
+        if isinstance(val, str) and val.strip():
+            return _strip_html(val.strip())
+    return ""
+
+
+def _strip_html(text: str) -> str:
+    import re
+
+    return re.sub(r"<[^>]+>", "", text.replace("&nbsp;", " ")).strip()
+
+
+def history_indicates_resume_sent(raw: list[dict]) -> bool:
+    """True if geek already sent / agreed to send attachment resume."""
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        blob = json.dumps(item, ensure_ascii=False)
+        if any(m in blob for m in RESUME_SENT_MARKERS):
+            return True
+        if "encryptResumeId" in blob or "resumePreview" in blob:
+            return True
+        if '"aid": 38' in blob or '"aid":38' in blob:
+            # aid=38 = 同意发送附件简历（实测）
+            return True
+        body = item.get("body") if isinstance(item.get("body"), dict) else {}
+        action = body.get("action") if isinstance(body.get("action"), dict) else {}
+        if str(action.get("aid")) == "38":
+            return True
+        hyper = body.get("hyperLink") if isinstance(body.get("hyperLink"), dict) else {}
+        extra = str(hyper.get("extraJson") or "")
+        if "encryptResumeId" in extra or "attach-resume" in extra:
+            return True
+    return False

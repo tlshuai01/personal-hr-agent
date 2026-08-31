@@ -15,8 +15,43 @@ SPEC 一阶段明确：**不做跨会话长期记忆**（避免 HR 侧误以为 
 
 ### Channel 层（当前）
 
-- `SessionStore`：dedupe key、`messages[]` 最近 40 条
+- `SessionStore`（`boss-bridge/data/sessions.json`）：dedupe key、`messages[]` 最近 40 条
 - 用途：多轮 C3、避免同一条 lastMsg 重复回复
+- **已发简历**：`resumeSentAt` / `resumeTrack` / `resumeSource` 已落地
+  - 热路径：本地有标记 → 跳过 `historyMsg` 扫描
+  - 冷启动：历史启发式命中 → `history_bootstrap` 回写本地
+  - 真发成功写 `proactive`：待 Boss 发简历 API
+
+### Channel 层（会话状态 / 摘要）
+
+**结论：本地持久化**——状态在 Channel，Core 保持无状态；只存本机、不上传、不入库。
+
+| 字段 | 要不要存 | 说明 |
+|------|----------|------|
+| `processed[]` | ✅ 已有 | 防同一 lastMsg 重复回 |
+| `messages[-40:]` | ✅ 已有 | 多轮上下文；可与线上 history 同步 |
+| `resumeSentAt` / `resumeTrack` / `resumeSource` | ✅ **已加** | bootstrap / 预留 proactive |
+| `jobTrack` / `flags` | ✅ 字段预留 | `set_job_track` / `update_flags` |
+| LLM 对话摘要 | ⚠️ 可选 | messages >20 时 sliding window **或** 短摘要；**不能**当事实源 |
+| 把聊天写入 knowledge | ❌ | 防污染 / 隐私 |
+
+推荐 session 形态（示意）：
+
+```json
+{
+  "sessions": {
+    "<encryptUid>": {
+      "messages": [{"role":"user","content":"..."}],
+      "resumeSentAt": "2026-08-31T12:00:00Z",
+      "resumeTrack": "backend-agent",
+      "resumeSource": "history_bootstrap",
+      "jobTrack": "backend-agent",
+      "flags": { "rejected": false, "salaryDiscussed": true },
+      "summary": null
+    }
+  }
+}
+```
 
 ### Core 层（预留）
 
@@ -49,5 +84,6 @@ Core **无状态**优先：Channel 传全量 `messages`，Core 不查 Boss 历�
 
 ## 待决
 
-- [ ] C3 是否在 Core 提供 `GET /api/internal/session/:id`（一般不需要）
-- [ ] 摘要压缩：messages >20 条时 sliding window vs LLM summary
+- [ ] C3 是否在 Core 提供 `GET /api/internal/session/:id`（一般不需要；Channel 自管即可）
+- [ ] 摘要压缩：messages >20 条时 sliding window vs LLM summary（优先 sliding window，摘要作辅）
+- [ ] `resumeSent*` 与历史启发式冲突时以谁为准（建议：本地 true 优先；本地 false 时允许历史再 bootstrap）

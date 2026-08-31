@@ -22,7 +22,7 @@ Boss 直聘 (Cookie)  ←→  boss-bridge (Python)  ←→  POST /api/internal/r
 | **C2** | `--phase c2` | 非敏感题自动发送；敏感题 blocked |
 | **C3** | `--phase c3` | 多轮：拉历史后再回复（C2 发送逻辑） |
 
-敏感词（薪资 / offer / 微信电话等）在 **bridge 侧** 与 **Agent 侧** 双重拦截。
+敏感词（微信电话等）在 **bridge 侧** 与 **Agent 侧** 双重拦截；**薪资 / 到岗** 按知识库自动答。
 
 ## 前置条件
 
@@ -32,9 +32,17 @@ Boss 直聘 (Cookie)  ←→  boss-bridge (Python)  ←→  POST /api/internal/r
 
 ```bash
 pip install kabi-boss-cli
-boss login
-boss status --json
-boss chat --json
+# 推荐：无二维码，从浏览器 Cookie 登录（任选一种）
+
+# 方式 A — cmd（不受 PowerShell 执行策略限制，推荐）
+scripts\boss-login-cookie.cmd
+scripts\boss-login-cookie.cmd --browser edge
+
+# 方式 B — 直接 Python
+# %LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe scripts\boss-login-cookie.py
+
+# 方式 C — PowerShell（若报「禁止运行脚本」，用 Bypass 或改用 cmd）
+# powershell -ExecutionPolicy Bypass -File .\scripts\boss-login-cookie.ps1
 ```
 
 ## 安装与配置

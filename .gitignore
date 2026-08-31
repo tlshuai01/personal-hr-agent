@@ -3,7 +3,7 @@ node_modules/
 out/
 data/*.json
 !.gitkeep
-boss-bridge/data/
+boss-bridge/reports/
 boss-bridge/.env
 boss-bridge/.venv/
 **/__pycache__/
@@ -22,3 +22,7 @@ knowledge/**
 *.log
 .DS_Store
 next-env.d.ts
+
+boss-bridge/data/
+.idea/
+

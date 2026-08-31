@@ -10,7 +10,8 @@
     "eval": "tsx scripts/run-eval.ts",
     "eval:retrieval": "tsx scripts/run-eval.ts --retrieval",
     "smoke": "tsx scripts/smoke.ts",
-    "smoke:bridge": "tsx scripts/smoke-bridge.ts"
+    "smoke:bridge": "tsx scripts/smoke-bridge.ts",
+    "p0:check": "tsx scripts/p0-check.ts"
   },
   "dependencies": {
     "next": "^15.1.6",

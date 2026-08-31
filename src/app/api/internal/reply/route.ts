@@ -24,6 +24,7 @@ const bodySchema = z.object({
       bossName: z.string().optional(),
       company: z.string().optional(),
       jobTitle: z.string().optional(),
+      resumeAlreadySent: z.boolean().optional(),
     })
     .optional(),
 });
@@ -53,7 +54,10 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await generateReply(parsed.data.messages);
+    const result = await generateReply(parsed.data.messages, {
+      channel: "boss",
+      meta: parsed.data.meta,
+    });
     return Response.json({
       ok: true,
       channel: parsed.data.channel,
@@ -62,6 +66,7 @@ export async function POST(req: Request) {
       blocked: result.blocked,
       blockReason: result.blockReason ?? null,
       sources: result.sources,
+      actions: result.actions,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "reply error";

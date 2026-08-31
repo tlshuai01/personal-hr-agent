@@ -122,13 +122,21 @@ async function apiEmbed(texts: string[]): Promise<number[][]> {
     baseURL: config.embeddingBaseUrl,
     apiKey: config.embeddingApiKey,
   });
-  const res = await client.embeddings.create({
-    model: config.embeddingModel,
-    input: texts,
-  });
-  return res.data
-    .sort((a, b) => a.index - b.index)
-    .map((d) => d.embedding);
+  // 智谱 embedding-3：单请求最多 64 条
+  const batchSize = 64;
+  const out: number[][] = new Array(texts.length);
+  for (let i = 0; i < texts.length; i += batchSize) {
+    const slice = texts.slice(i, i + batchSize);
+    const res = await client.embeddings.create({
+      model: config.embeddingModel,
+      input: slice,
+    });
+    const sorted = res.data.sort((a, b) => a.index - b.index);
+    sorted.forEach((d, j) => {
+      out[i + j] = d.embedding;
+    });
+  }
+  return out;
 }
 
 export async function embedTexts(texts: string[]): Promise<{
@@ -234,7 +242,12 @@ export async function retrieve(
   const scored = index.chunks.map((c) => {
     const semantic = cosine(queryVec, c.embedding);
     const lexical = weightedKeywordOverlap(query, `${c.source}\n${c.text}`);
-    const score = 0.5 * semantic + 0.5 * lexical;
+    let score = 0.5 * semantic + 0.5 * lexical;
+    // 政策/基本信息：薪资、到岗、Boss 口径等优先露出（local hash 语义弱时更关键）
+    if (shouldPinPolicy(query) && isPolicySource(c.source)) {
+      score += 0.35;
+    }
+    score += topicPinBoost(query, c.source, c.text);
     return {
       id: c.id,
       source: c.source,
@@ -245,4 +258,66 @@ export async function retrieve(
 
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK);
+}
+
+const POLICY_SOURCE_PREFIXES = [
+  "01-基本信息/",
+  "05-技能与问答/boundaries.md",
+  "05-技能与问答/boss-channel.md",
+  "05-技能与问答/faq.md",
+];
+
+function isPolicySource(source: string): boolean {
+  return POLICY_SOURCE_PREFIXES.some(
+    (p) => source === p || source.startsWith(p),
+  );
+}
+
+/** 问到求职政策类话题时，抬高基本信息 / Boss 口径文档权重 */
+function shouldPinPolicy(query: string): boolean {
+  return /薪|期望|总包|预算|给不到|到岗|入职|简历|微信|电话|外包|驻场|合适|远程|加班|日语|日英|英语|双语|外语|语言|全日制|统招|学历|本科|硕士|沟通怎么样|离职|现薪|感兴趣|聊聊/.test(
+    query,
+  );
+}
+
+/**
+ * 专题强 pin：避免「日英」不匹配「日语」正则、或开场只捞到 availability/compensation。
+ */
+function topicPinBoost(query: string, source: string, text: string): number {
+  let boost = 0;
+  const langQ = /日语|日英|英语|双语|外语|语言能力|沟通怎么样/.test(query);
+  if (langQ) {
+    if (source.includes("identity.md") && /日语|英语|外语|双语|无基础/.test(text)) {
+      boost += 0.55;
+    }
+    if (source.includes("boss-channel.md") && /日语|英语|外语/.test(text)) {
+      boost += 0.35;
+    }
+    if (source.includes("boundaries.md") && /外语|日语/.test(text)) {
+      boost += 0.3;
+    }
+  }
+  if (/薪|期望|总包|预算|给不到|现薪/.test(query) && source.includes("compensation.md")) {
+    boost += 0.45;
+  }
+  if (
+    /学历|全日制|统招|本科|硕士/.test(query) &&
+    source.includes("education.md")
+  ) {
+    boost += 0.45;
+  }
+  if (
+    /简历|感兴趣|聊聊|方便发|发简历|看看.*机会|打招呼/.test(query) &&
+    source.includes("boss-channel.md")
+  ) {
+    boost += 0.4;
+  }
+  if (
+    /简历|感兴趣|聊聊|方便发|发简历/.test(query) &&
+    (source.includes("profile-summary.md") || source.includes("identity.md")) &&
+    /Java|Python|定位|自我介绍/.test(text)
+  ) {
+    boost += 0.25;
+  }
+  return boost;
 }

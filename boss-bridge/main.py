@@ -7,12 +7,14 @@ import json
 import logging
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 from agent_client import AgentClient
 from boss_transport import BossTransport, BossTransportError
 from config import BridgeConfig, load_config
 from policies import should_auto_reply
+from report_writer import DryRunReport
 from session_store import SessionStore
 
 LOG = logging.getLogger("boss-bridge")
@@ -82,16 +84,27 @@ def _is_system_message(text: str) -> bool:
 
 
 def _last_message_from_self(friend: dict) -> bool:
+    """Geek 沟通列表：friend.uid 是 Boss；自己发的消息 fromId != boss.uid。"""
     info = friend.get("lastMessageInfo")
     if not isinstance(info, dict):
         return False
     if info.get("isSelf") is True:
         return True
-    from_uid = info.get("fromUid") or info.get("fromId") or info.get("fromid")
-    my_uid = friend.get("myUid") or friend.get("geekUid")
-    if from_uid and my_uid and str(from_uid) == str(my_uid):
+    if info.get("isSelf") is False:
+        return False
+
+    boss_uid = friend.get("uid")
+    from_id = info.get("fromId") or info.get("fromUid") or info.get("fromid")
+    to_id = info.get("toId") or info.get("toUid")
+
+    # 主判定：发送方不是 Boss → 视为自己（Geek）发出
+    if boss_uid is not None and from_id is not None:
+        return str(from_id) != str(boss_uid)
+
+    # 次判定：收件人是 Boss → 自己发出
+    if boss_uid is not None and to_id is not None and str(to_id) == str(boss_uid):
         return True
-    # Boss chat list: fromType 1 = geek, 2 = boss (observed in community tools)
+
     from_type = info.get("fromType") or info.get("senderType")
     if str(from_type) == "1":
         return True
@@ -101,7 +114,7 @@ def _last_message_from_self(friend: dict) -> bool:
 def _extract_incoming_message(friend: dict) -> str:
     info = friend.get("lastMessageInfo")
     if isinstance(info, dict):
-        for key in ("body", "text", "content", "msg"):
+        for key in ("showText", "body", "text", "content", "msg"):
             val = info.get(key)
             if isinstance(val, str) and val.strip():
                 return val.strip()
@@ -109,28 +122,40 @@ def _extract_incoming_message(friend: dict) -> str:
 
 
 def _needs_reply(friend: dict) -> bool:
-    """Heuristic: unread from recruiter, or last turn not from geek."""
+    """仅当最后一条是 HR/Boss 发来的才回复；自己发的绝不回。"""
+    if _last_message_from_self(friend):
+        return False
+
+    incoming = _extract_incoming_message(friend)
+    if not incoming or _is_system_message(incoming):
+        return False
+
     unread = friend.get("unreadCount") or friend.get("unreadMsgCount") or 0
     try:
         if int(unread) > 0:
-            incoming = _extract_incoming_message(friend)
-            return not _is_system_message(incoming)
+            return True
     except (TypeError, ValueError):
         pass
 
     if friend.get("unreplied") is True:
         return True
     if friend.get("lastSender") in ("boss", "recruiter", "them", 2, "2"):
-        incoming = _extract_incoming_message(friend)
-        return bool(incoming) and not _is_system_message(incoming)
+        return True
 
-    incoming = _extract_incoming_message(friend)
-    if not incoming or _is_system_message(incoming):
-        return False
-    return not _last_message_from_self(friend)
+    # 最后一条已判定来自 Boss（非 self），即使未读为 0 也可回复一次（如拒信）
+    return True
 
 
-def _build_messages(friend: dict, store: SessionStore, session_id: str) -> list[dict]:
+def _build_messages(friend: dict, store: SessionStore, session_id: str, transport: BossTransport) -> list[dict]:
+    """Prefer live Boss history; fall back to local short memory + lastMsg."""
+    try:
+        live = transport.fetch_history(friend, limit=20)
+    except Exception:  # noqa: BLE001
+        live = []
+    if live:
+        store.sync_history(session_id, live)
+        return live
+
     history = store.get_history(session_id)
     last_msg = _extract_incoming_message(friend)
     if not last_msg:
@@ -141,6 +166,37 @@ def _build_messages(friend: dict, store: SessionStore, session_id: str) -> list[
     return history[-20:]
 
 
+def _resolve_resume_already_sent(
+    friend: dict,
+    store: SessionStore,
+    session_id: str,
+    transport: BossTransport,
+) -> bool:
+    """Local resumeSentAt first; else history heuristic and bootstrap store."""
+    local = store.get_resume_sent(session_id)
+    if local:
+        LOG.info(
+            "resume_already_sent local %s source=%s",
+            session_id,
+            local.get("resumeSource"),
+        )
+        return True
+
+    try:
+        hit = transport.resume_already_sent(friend, limit=40)
+    except Exception as exc:  # noqa: BLE001
+        LOG.debug("resume_already_sent failed: %s", exc)
+        return False
+
+    if hit:
+        store.mark_resume_sent(session_id, source="history_bootstrap")
+        LOG.info(
+            "resume_already_sent bootstrap %s (history → local)",
+            session_id,
+        )
+    return hit
+
+
 def _handle_friend(
     *,
     friend: dict,
@@ -149,15 +205,17 @@ def _handle_friend(
     agent: AgentClient,
     store: SessionStore,
     transport: BossTransport,
+    report: DryRunReport | None = None,
+    ignore_processed: bool = False,
 ) -> bool:
     """Process one friend. Returns True if handled (including skips marked processed)."""
     session_id = _friend_session_id(friend)
     last_msg = _extract_incoming_message(friend)
     dedupe_key = f"{session_id}:{last_msg}"
-    if store.is_processed(dedupe_key):
+    if not ignore_processed and store.is_processed(dedupe_key):
         return False
 
-    messages = _build_messages(friend, store, session_id)
+    messages = _build_messages(friend, store, session_id, transport)
     last_user = messages[-1]["content"] if messages else last_msg
     policy = should_auto_reply(last_user, phase=phase)
     if not policy.allowed:
@@ -167,8 +225,18 @@ def _handle_friend(
             friend.get("name"),
             policy.reason,
         )
+        if report:
+            report.add(
+                status="policy_blocked",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                block_reason=policy.reason or "",
+            )
         store.mark_processed(dedupe_key)
         return True
+
+    resume_sent = _resolve_resume_already_sent(friend, store, session_id, transport)
 
     try:
         result = agent.request_reply(
@@ -178,11 +246,21 @@ def _handle_friend(
                 "bossName": friend.get("name"),
                 "company": friend.get("brandName"),
                 "jobTitle": friend.get("jobName") or friend.get("title"),
+                "resumeAlreadySent": resume_sent,
             },
         )
     except Exception as exc:
         LOG.error("agent reply failed for %s: %s", session_id, exc)
-        return False
+        if report:
+            report.add(
+                status="error",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                error=str(exc),
+            )
+        # Count toward --limit so one Core outage doesn't scan all candidates
+        return True
 
     if result.get("blocked"):
         LOG.info(
@@ -191,19 +269,48 @@ def _handle_friend(
             friend.get("name"),
             result.get("blockReason"),
         )
+        if report:
+            report.add(
+                status="agent_blocked",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                block_reason=str(result.get("blockReason") or ""),
+            )
         store.mark_processed(dedupe_key)
         return True
 
     reply = (result.get("reply") or "").strip()
+    sources = list(result.get("sources") or [])
+    actions = list(result.get("actions") or [])
     if dry_run:
+        action_note = ""
+        if resume_sent:
+            action_note += " | resume_already_sent"
+        for act in actions:
+            if isinstance(act, dict) and act.get("type") == "send_resume":
+                # Dry-run only: mark intended send in report; do not call Boss API
+                action_note += f" | resume={act.get('label') or act.get('track')}"
         LOG.info(
-            "[DRY-RUN] %s | %s @ %s\n  Q: %s\n  A: %s",
+            "[DRY-RUN] %s | %s @ %s%s\n  Q: %s\n  A: %s",
             session_id,
             friend.get("name"),
             friend.get("brandName"),
+            action_note,
             last_user[:120],
             reply[:300],
         )
+        if report:
+            report.add(
+                status="dry_run",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                answer=reply,
+                sources=sources,
+                actions=actions if isinstance(actions, list) else [],
+                resume_already_sent=resume_sent,
+            )
         store.mark_processed(dedupe_key)
         if reply:
             store.append_assistant(session_id, reply)
@@ -234,14 +341,21 @@ def _poll_once(
     phase: str,
     dry_run: bool,
     limit: int | None = None,
+    report: DryRunReport | None = None,
+    ignore_processed: bool = False,
 ) -> int:
     """Single poll iteration. Returns count of friends processed."""
     friends = transport.list_friends()
     candidates = [f for f in friends if _needs_reply(f)]
+    skipped_self = sum(1 for f in friends if _last_message_from_self(f))
+    if report:
+        report.total_sessions = len(friends)
+        report.candidates = len(candidates)
     LOG.info(
-        "poll: %d sessions, %d need reply%s",
+        "poll: %d sessions, %d need reply, %d last-from-self(skipped)%s",
         len(friends),
         len(candidates),
+        skipped_self,
         f", processing up to {limit}" if limit else "",
     )
 
@@ -256,6 +370,8 @@ def _poll_once(
             agent=agent,
             store=store,
             transport=transport,
+            report=report,
+            ignore_processed=ignore_processed,
         ):
             processed += 1
             if not dry_run:
@@ -309,10 +425,10 @@ def phase_c3_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClien
             try:
                 history = transport.fetch_history(friend, limit=cfg.history_limit)
             except BossTransportError:
-                history = _build_messages(friend, store, session_id)
+                history = _build_messages(friend, store, session_id, transport)
 
             if not history:
-                history = _build_messages(friend, store, session_id)
+                history = _build_messages(friend, store, session_id, transport)
 
             last_user_msg = next(
                 (m["content"] for m in reversed(history) if m["role"] == "user"),
@@ -324,6 +440,10 @@ def phase_c3_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClien
                 store.mark_processed(dedupe_key)
                 continue
 
+            resume_sent = _resolve_resume_already_sent(
+                friend, store, session_id, transport
+            )
+
             try:
                 result = agent.request_reply(
                     session_id=session_id,
@@ -332,6 +452,7 @@ def phase_c3_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClien
                         "bossName": friend.get("name"),
                         "company": friend.get("brandName"),
                         "jobTitle": friend.get("jobName") or friend.get("title"),
+                        "resumeAlreadySent": resume_sent,
                     },
                 )
             except Exception as exc:
@@ -348,7 +469,8 @@ def phase_c3_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClien
             reply = (result.get("reply") or "").strip()
             dry = cfg.phase == "c1"
             if dry:
-                LOG.info("[DRY-RUN/C3] %s\n  A: %s", session_id, reply[:300])
+                note = " | resume_already_sent" if resume_sent else ""
+                LOG.info("[DRY-RUN/C3] %s%s\n  A: %s", session_id, note, reply[:300])
             elif reply:
                 try:
                     transport.send_message(friend, reply)
@@ -384,6 +506,16 @@ def main(argv: list[str] | None = None) -> int:
         default=3,
         help="Max conversations to process per --once run (default: 3)",
     )
+    parser.add_argument(
+        "--report",
+        metavar="PATH",
+        help="Write dry-run review markdown to PATH (use with --once)",
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Ignore prior processed dedupe keys for this run (for report re-runs)",
+    )
     args = parser.parse_args(argv)
 
     cfg = load_config()
@@ -402,6 +534,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.once:
         LOG.info("=== %s: single poll (--limit %d) ===", args.phase.upper(), args.limit)
+        report: DryRunReport | None = None
+        if args.report:
+            report = DryRunReport(
+                phase=args.phase,
+                limit=args.limit,
+                total_sessions=0,
+                candidates=0,
+            )
         try:
             n = _poll_once(
                 cfg,
@@ -411,11 +551,17 @@ def main(argv: list[str] | None = None) -> int:
                 phase=poll_phase,
                 dry_run=dry_run,
                 limit=args.limit,
+                report=report,
+                ignore_processed=args.fresh,
             )
         except BossTransportError as exc:
             LOG.error("poll failed: %s", exc)
             return 1
         LOG.info("done: processed %d conversations", n)
+        if report:
+            out = Path(args.report)
+            report.write_markdown(out)
+            LOG.info("report written: %s", out.resolve())
         return 0
 
     if args.phase == "c1":
