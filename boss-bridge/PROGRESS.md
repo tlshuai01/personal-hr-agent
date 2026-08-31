@@ -11,10 +11,10 @@
 | **C1 Boss dry-run** | **已通过** | 多轮报告见 `reports/`；简历已发本地化已落地 |
 | **发简历真链路** | **已通 / 默认 OFF** | `resumeId` 选轨；`BOSS_ENABLE_SEND_RESUME`；谷女士实测中文后端 OK |
 | **传输层** | **已对齐 zhipin-geek** | MQTT 文本、`boss_http` 限流、`historyMsg` 分页、`userLastMsg` |
-| **C2** | 未开 | 自动发送，确认 C1 日志后再开 |
+| **C2** | **已开（试行）** | `REPLY_MODE=new`；`MAX_PER_POLL=5`；审计 `reports/audit/c2-*.md`；**发简历 ON** |
 | **C3** | 未开 | 多轮历史（分页已具备） |
 
-更新日期：2026-08-31
+更新日期：2026-09-01
 
 ## P0 验收（Core，2026-08-27）
 
@@ -51,7 +51,28 @@ boss login --cookie-source chrome          # 勿轻易 boss logout
 
 **2026-08-27 样例**：300 会话，启发式 286「需回复」；`--limit 3` 处理前 3 条，均为 `[DRY-RUN]`，DeepSeek 生成正常。
 
-观察 `[DRY-RUN]` / `[BLOCKED]` / `[AGENT-BLOCKED]`，**不要**急着开 C2。
+观察 `[DRY-RUN]` / `[BLOCKED]` / `[AGENT-BLOCKED]`，确认话术后再开 C2。
+
+## C2 真发（2026-09-01）
+
+```bash
+python scripts/boss-login.py --verify-only
+python main.py --phase c2
+```
+
+- **只回新消息**：`REPLY_MODE=new`（启动 baseline，不回历史积压）
+- **每轮上限**：`MAX_PER_POLL=5`
+- **发简历**：`BOSS_ENABLE_SEND_RESUME=true`（按 JD 选附件；仍受已发标记去重）
+- **审阅**：`boss-bridge/reports/audit/c2-YYYY-MM-DD.md` + 同名 `.jsonl`
+
+## 搜职位 + 打招呼（G0，2026-09-01）
+
+```bash
+.\.venv\Scripts\python scripts/search_and_greet.py "Java Agent" --city 上海 -n 5
+# 真发需 BOSS_ENABLE_GREET=true 且加 --force
+```
+
+规划：[`docs/roadmap/channels/BOSS_GREET.md`](../docs/roadmap/channels/BOSS_GREET.md)
 
 ## 风险
 

@@ -5,7 +5,7 @@ import { FormEvent, useState } from "react";
 type Msg = { role: "user" | "assistant"; content: string };
 
 const WELCOME =
-  "你好，我是候选人的个人介绍助手。可以问我经历、项目、技术栈或求职意向。回答基于知识库；关键录用以真人沟通为准。";
+  "你好，我是候选人的个人求职 Agent。可以问我经历、项目、技术栈或求职意向。回答基于知识库；关键录用以真人沟通为准。";
 
 export function ChatPanel({ token }: { token: string }) {
   const [messages, setMessages] = useState<Msg[]>([

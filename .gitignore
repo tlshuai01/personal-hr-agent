@@ -26,5 +26,8 @@ next-env.d.ts
 boss-bridge/data/
 boss-bridge/_ref/
 boss-bridge/.venv-geek/
+boss-bridge/main.py.prev
+boss-bridge/*.prev
+.obsidian/
 .idea/
 

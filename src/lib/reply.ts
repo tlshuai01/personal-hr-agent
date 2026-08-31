@@ -135,5 +135,12 @@ export async function generateReply(
     });
   }
 
+  if (channel === "boss" && reply) {
+    const signature = "[本条消息由个人求职 Agent 发送]";
+    if (!reply.includes(signature)) {
+      reply = `${reply.trim()}\n\n${signature}`;
+    }
+  }
+
   return { reply, blocked: false, sources, actions };
 }

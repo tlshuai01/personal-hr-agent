@@ -1,7 +1,8 @@
-# 个人 HR 对话 Agent
+# 个人求职 Agent
 
-可分享、带过期令牌的网页对话 Agent：基于你的 `knowledge/` 知识库 + RAG，准确回答经历 / 项目 / 技术问题。
+可分享、带过期令牌的网页对话 Agent：基于你的知识库 + RAG，准确回答经历 / 项目 / 技术问题；可选 Boss 渠道自动起草回复。
 
+> **官方名**：个人求职 Agent（仓库名仍为 `personal-hr-agent`）  
 > **完整架构/复现规格（给其他 Coding Agent）：** [`PERSONAL_HR_AGENT_SPEC.md`](PERSONAL_HR_AGENT_SPEC.md)  
 > **当前架构图（Mermaid + 模块说明）：** [`PROJECT_ARCHITECTURE.md`](PROJECT_ARCHITECTURE.md)  
 > **项目约定：** [`../CLAUDE.md`](../CLAUDE.md)

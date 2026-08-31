@@ -1,9 +1,9 @@
 # 待开发功能总览
 
-> 个人 HR Agent 产品路线图与分类文档索引。  
+> 个人求职 Agent 产品路线图与分类文档索引。  
 > 规格真源仍见 [`PERSONAL_HR_AGENT_SPEC.md`](../PERSONAL_HR_AGENT_SPEC.md)；本文为**演进规划**，与已实现代码可并存。
 
-更新：2026-08-27
+更新：2026-09-01
 
 ---
 
@@ -16,6 +16,7 @@
 | **L1 Chat Core** | 对话运行时、RAG、记忆策略、对内 API | `personal-hr-agent`（本仓） |
 | **L2 Knowledge** | Markdown 事实源、索引、评测 | `knowledge/` + `scripts/` |
 | **L3 Channel** | 各平台消息拉取/发送、格式转换 | `boss-bridge/`（建议逐步独立或 `channels/`） |
+| **L4 Schedule（规划）** | 面试预约日程；后续供 Agent 读写 | 见 [`schedule/INTERVIEW_CALENDAR.md`](./schedule/INTERVIEW_CALENDAR.md) |
 
 详细论证：[`ARCHITECTURE.md`](./ARCHITECTURE.md)
 
@@ -31,6 +32,8 @@
 | 记忆 | [memory/DESIGN.md](./memory/DESIGN.md) | 预留 |
 | Chat API | [chat/API.md](./chat/API.md) | 部分实现；待统一契约 |
 | **按岗位 Persona** | [chat/PERSONA_BY_ROLE.md](./chat/PERSONA_BY_ROLE.md) | **待实现** |
+| **面试日程** | [schedule/INTERVIEW_CALENDAR.md](./schedule/INTERVIEW_CALENDAR.md) | **待做 · S0 独立小应用** |
+| **Boss 搜岗打招呼** | [channels/BOSS_GREET.md](./channels/BOSS_GREET.md) | **G0 dry-run 已接线** |
 | 渠道 · Boss | [channels/BOSS.md](./channels/BOSS.md) | C0 完成，C1 进行中 |
 | 渠道 · 猎聘 | [channels/LIEPIN.md](./channels/LIEPIN.md) | 占位 |
 | 渠道总览 | [channels/README.md](./channels/README.md) | — |
@@ -54,6 +57,7 @@
 
 ### P1 — Chat Core 稳固
 
+- [ ] **主动搜职位 + 打招呼（G0→G1）** → [`channels/BOSS_GREET.md`](./channels/BOSS_GREET.md)
 - [ ] **按岗位 Persona + 知识库检索偏好**（后端轨 / 数据轨）→ [`chat/PERSONA_BY_ROLE.md`](./chat/PERSONA_BY_ROLE.md)
 - [ ] 统一 Chat API 契约（guest share + internal channel）
 - [ ] RAG：检索质量 / hybrid / rerank 可选增强
@@ -62,6 +66,7 @@
 
 ### P2 — 扩展
 
+- [ ] **面试日程小应用（S0）→ Agent 接入（S1）** → [`schedule/INTERVIEW_CALENDAR.md`](./schedule/INTERVIEW_CALENDAR.md)
 - [ ] 会话级短期记忆（Channel 侧 + Core 可选持久）
 - [ ] 猎聘 / 其它渠道适配器（独立包）
 - [ ] Embedding API 可选接入（提升检索，非必须）

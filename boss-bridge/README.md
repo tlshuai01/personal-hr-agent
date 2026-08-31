@@ -1,6 +1,6 @@
 # Boss Bridge
 
-Boss 直聘 ↔ `personal-hr-agent` 的分阶段桥接守护进程（非官方 API，**试用风险自负**）。
+Boss 直聘 ↔ **个人求职 Agent**（仓库 `personal-hr-agent`）的分阶段桥接守护进程（非官方 API，**试用风险自负**）。
 
 ## 架构
 
@@ -21,16 +21,25 @@ Boss 直聘 (Cookie)  ←→  boss-bridge (Python)  ←→  POST /api/internal/r
 | 阶段 | 命令 | 行为 |
 |------|------|------|
 | **C0** | `--phase c0` | 验证登录 + 拉会话列表，一次性 |
-| **C1** | `--phase c1`（默认） | 轮询未读 → Agent 生成回复 → **只打日志，不发 Boss** |
-| **C1 试跑** | `--phase c1 --once --limit 3` | 单次轮询，最多处理 3 条未读（推荐先试） |
-| **C2** | `--phase c2` | 非敏感题自动发送；敏感题 blocked |
+| **C1** | `--phase c1`（默认） | 轮询 → Agent 生成 → **只打日志**；默认 `REPLY_MODE=new` 忽略启动前积压 |
+| **C1 试跑** | `--phase c1 --once --limit 3` | 单次轮询（`new` 首轮只做 baseline；要回放历史加 `--fresh --reply-mode all`） |
+| **C2** | `--phase c2` | **真实发送**文本；默认只回启动后新消息；审计写入 `reports/audit/` |
 | **C3** | `--phase c3` | 多轮：拉历史后再回复（C2 发送逻辑） |
 
-敏感词（微信电话等）在 **bridge 侧** 与 **Agent 侧** 双重拦截；**薪资 / 到岗** 按知识库自动答。
+敏感词（微信电话等）在 **bridge 侧** 与 **Agent 侧** 双重拦截；**薪资 / 到岗** 按知识库自动答。发简历默认 OFF（`BOSS_ENABLE_SEND_RESUME`）。
+
+### 审阅回复质量
+
+C2 持续运行时，每天追加：
+
+- `boss-bridge/reports/audit/c2-YYYY-MM-DD.md`（人读）
+- `boss-bridge/reports/audit/c2-YYYY-MM-DD.jsonl`（可脚本汇总）
+
+定期打开 md，在「审阅」行写问题与期望改法，再改 prompt / 知识库。
 
 ## 前置条件
 
-1. **personal-hr-agent** 已启动：`npm run dev`（默认 :3000）
+1. **个人求职 Agent** Core 已启动：`npm run dev`（默认 :3000）
 2. `.env.local` 配置 `LLM_*` 与 `BOSS_BRIDGE_SECRET`
 3. 安装 [boss-cli](https://github.com/jackwener/boss-cli)（PyPI: `kabi-boss-cli`）并完成登录：
 
@@ -70,11 +79,14 @@ python main.py --phase c0
 # C1：dry-run（推荐先试）
 python main.py --phase c1
 
-# C2：自动发送（确认 C1 日志无误后再开）
+# C2：自动发送（确认 C1 后；只回新消息；看 reports/audit/）
 python main.py --phase c2
 
 # C3：多轮上下文
 python main.py --phase c3
+
+# 搜职位 + 拟打招呼（默认读 greet_config.json；非时段可加 --ignore-hours）
+python scripts/search_and_greet.py --ignore-hours
 ```
 
 ## 内部 API

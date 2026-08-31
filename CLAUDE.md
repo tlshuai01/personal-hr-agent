@@ -1,10 +1,12 @@
-# CLAUDE.md — personal-hr-agent
+# CLAUDE.md — personal-hr-agent（个人求职 Agent）
 
 ## 项目定位
 
-构建**个人 Agent 能力**的独立产品仓库。
+构建**个人求职 Agent**能力的独立产品仓库。
 
-**一阶段目标**：候选人维护个人知识库，生成限时分享链接；HR 打开链接即可与「数字化候选人」文本对话，准确回答经历 / 项目 / 技术问题。
+**官方产品名**：**个人求职 Agent**（英文 Personal Job Agent）。仓库目录/npm 包名仍为 `personal-hr-agent`。
+
+**一阶段目标**：候选人维护个人知识库，生成限时分享链接；招聘方打开链接即可与候选人数字分身文本对话，准确回答经历 / 项目 / 技术问题。可选 Boss 直聘渠道 Bridge（默认 dry-run）。
 
 规格真源：[`docs/PERSONAL_HR_AGENT_SPEC.md`](docs/PERSONAL_HR_AGENT_SPEC.md)  
 产品说明：[`docs/README.md`](docs/README.md)

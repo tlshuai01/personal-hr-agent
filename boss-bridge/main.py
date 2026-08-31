@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_client import AgentClient
+from audit_log import AuditLog
 from boss_transport import BossTransport, BossTransportError
 from config import BridgeConfig, load_config
 from policies import should_auto_reply
@@ -18,6 +19,9 @@ from report_writer import DryRunReport
 from session_store import SessionStore
 
 LOG = logging.getLogger("boss-bridge")
+
+# Process-local: first poll in reply_mode=new seeds backlog as seen (no reply).
+_NEW_MODE_BASELINE_DONE = False
 
 SYSTEM_MSG_MARKERS = (
     "对方已同意",
@@ -121,8 +125,21 @@ def _extract_incoming_message(friend: dict) -> str:
     return (friend.get("lastMsg") or "").strip()
 
 
-def _needs_reply(friend: dict) -> bool:
-    """仅当最后一条是 HR/Boss 发来的才回复；自己发的绝不回。"""
+def _unread_count(friend: dict) -> int:
+    raw = friend.get("unreadCount") or friend.get("unreadMsgCount") or 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _needs_reply(friend: dict, *, reply_mode: str = "new") -> bool:
+    """仅当最后一条是 HR/Boss 发来的才回复；自己发的绝不回。
+
+    reply_mode:
+      - new / all: 对方最后一条即可（new 的「忽略历史」靠启动 baseline）
+      - unread: 还必须 unreadCount > 0
+    """
     if _last_message_from_self(friend):
         return False
 
@@ -130,20 +147,29 @@ def _needs_reply(friend: dict) -> bool:
     if not incoming or _is_system_message(incoming):
         return False
 
-    unread = friend.get("unreadCount") or friend.get("unreadMsgCount") or 0
-    try:
-        if int(unread) > 0:
-            return True
-    except (TypeError, ValueError):
-        pass
+    if reply_mode == "unread":
+        return _unread_count(friend) > 0
 
-    if friend.get("unreplied") is True:
-        return True
-    if friend.get("lastSender") in ("boss", "recruiter", "them", 2, "2"):
-        return True
-
-    # 最后一条已判定来自 Boss（非 self），即使未读为 0 也可回复一次（如拒信）
+    # new / all：最后一条来自对方即可
     return True
+
+
+def _friend_dedupe_key(friend: dict) -> str:
+    return f"{_friend_session_id(friend)}:{_extract_incoming_message(friend)}"
+
+
+def _seed_new_message_baseline(
+    candidates: list[dict],
+    store: SessionStore,
+) -> int:
+    """Mark current lastMsg fingerprints as seen so only later changes are replied."""
+    seeded = 0
+    for friend in candidates:
+        key = _friend_dedupe_key(friend)
+        if not store.is_processed(key):
+            store.mark_processed(key)
+            seeded += 1
+    return seeded
 
 
 def _build_messages(friend: dict, store: SessionStore, session_id: str, transport: BossTransport) -> list[dict]:
@@ -206,6 +232,7 @@ def _handle_friend(
     store: SessionStore,
     transport: BossTransport,
     report: DryRunReport | None = None,
+    audit: AuditLog | None = None,
     ignore_processed: bool = False,
     enable_send_resume: bool = False,
 ) -> bool:
@@ -228,6 +255,14 @@ def _handle_friend(
         )
         if report:
             report.add(
+                status="policy_blocked",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                block_reason=policy.reason or "",
+            )
+        if audit:
+            audit.record(
                 status="policy_blocked",
                 friend=friend,
                 session_id=session_id,
@@ -261,6 +296,14 @@ def _handle_friend(
                 question=last_user,
                 error=str(exc),
             )
+        if audit:
+            audit.record(
+                status="error",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                error=str(exc),
+            )
         # Count toward --limit so one Core outage doesn't scan all candidates
         return True
 
@@ -273,6 +316,14 @@ def _handle_friend(
         )
         if report:
             report.add(
+                status="agent_blocked",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                block_reason=str(result.get("blockReason") or ""),
+            )
+        if audit:
+            audit.record(
                 status="agent_blocked",
                 friend=friend,
                 session_id=session_id,
@@ -318,6 +369,17 @@ def _handle_friend(
                 actions=actions if isinstance(actions, list) else [],
                 resume_already_sent=resume_sent,
             )
+        if audit:
+            audit.record(
+                status="dry_run",
+                friend=friend,
+                session_id=session_id,
+                question=last_user,
+                answer=reply,
+                sources=sources,
+                actions=actions if isinstance(actions, list) else [],
+                resume_already_sent=resume_sent,
+            )
         store.mark_processed(dedupe_key)
         if reply:
             store.append_assistant(session_id, reply)
@@ -332,8 +394,50 @@ def _handle_friend(
             transport.send_message(friend, reply)
             LOG.info("[SENT] %s | %s | %s chars", session_id, friend.get("name"), len(reply))
             store.append_assistant(session_id, reply)
+            if report:
+                report.add(
+                    status="sent",
+                    friend=friend,
+                    session_id=session_id,
+                    question=last_user,
+                    answer=reply,
+                    sources=sources,
+                    actions=actions if isinstance(actions, list) else [],
+                    resume_already_sent=resume_sent,
+                )
+            if audit:
+                audit.record(
+                    status="sent",
+                    friend=friend,
+                    session_id=session_id,
+                    question=last_user,
+                    answer=reply,
+                    sources=sources,
+                    actions=actions if isinstance(actions, list) else [],
+                    resume_already_sent=resume_sent,
+                )
         except BossTransportError as exc:
             LOG.error("[SEND-FAIL] %s | %s", session_id, exc)
+            if report:
+                report.add(
+                    status="send_fail",
+                    friend=friend,
+                    session_id=session_id,
+                    question=last_user,
+                    answer=reply,
+                    error=str(exc),
+                    resume_already_sent=resume_sent,
+                )
+            if audit:
+                audit.record(
+                    status="send_fail",
+                    friend=friend,
+                    session_id=session_id,
+                    question=last_user,
+                    answer=reply,
+                    error=str(exc),
+                    resume_already_sent=resume_sent,
+                )
             return False
 
     if send_resume_actions and not resume_sent:
@@ -386,23 +490,44 @@ def _poll_once(
     dry_run: bool,
     limit: int | None = None,
     report: DryRunReport | None = None,
+    audit: AuditLog | None = None,
     ignore_processed: bool = False,
 ) -> int:
     """Single poll iteration. Returns count of friends processed."""
+    global _NEW_MODE_BASELINE_DONE
+
     friends = transport.list_friends()
     try:
         transport.enrich_last_messages(friends)
     except Exception as exc:  # noqa: BLE001
         LOG.debug("enrich_last_messages skipped: %s", exc)
-    candidates = [f for f in friends if _needs_reply(f)]
+
+    mode = cfg.reply_mode
+    candidates = [f for f in friends if _needs_reply(f, reply_mode=mode)]
     skipped_self = sum(1 for f in friends if _last_message_from_self(f))
+
+    # reply_mode=new: first poll only records current lastMsg; do not reply to backlog.
+    if mode == "new" and not ignore_processed and not _NEW_MODE_BASELINE_DONE:
+        seeded = _seed_new_message_baseline(candidates, store)
+        _NEW_MODE_BASELINE_DONE = True
+        LOG.info(
+            "reply_mode=new baseline: marked %d current lastMsg as seen "
+            "(will only reply to messages arriving after this)",
+            seeded,
+        )
+        if report:
+            report.total_sessions = len(friends)
+            report.candidates = 0
+        return 0
+
     if report:
         report.total_sessions = len(friends)
         report.candidates = len(candidates)
     LOG.info(
-        "poll: %d sessions, %d need reply, %d last-from-self(skipped)%s",
+        "poll: %d sessions, %d need reply (mode=%s), %d last-from-self(skipped)%s",
         len(friends),
         len(candidates),
+        mode,
         skipped_self,
         f", processing up to {limit}" if limit else "",
     )
@@ -419,6 +544,7 @@ def _poll_once(
             store=store,
             transport=transport,
             report=report,
+            audit=audit,
             ignore_processed=ignore_processed,
             enable_send_resume=cfg.enable_send_resume,
         ):
@@ -430,10 +556,26 @@ def _poll_once(
 
 def phase_c1_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClient, store: SessionStore) -> None:
     """Poll unread, generate reply via agent, log only (dry-run)."""
-    LOG.info("=== C1: dry-run loop (poll=%ss) ===", cfg.poll_interval_sec)
+    audit = AuditLog(cfg.audit_dir, phase="c1")
+    LOG.info(
+        "=== C1: dry-run loop (poll=%ss, reply_mode=%s, max_per_poll=%s) ===",
+        cfg.poll_interval_sec,
+        cfg.reply_mode,
+        cfg.max_per_poll,
+    )
+    LOG.info("audit log: %s", audit.md_path)
     while True:
         try:
-            _poll_once(cfg, transport, agent, store, phase="c1", dry_run=True)
+            _poll_once(
+                cfg,
+                transport,
+                agent,
+                store,
+                phase="c1",
+                dry_run=True,
+                limit=cfg.max_per_poll,
+                audit=audit,
+            )
         except BossTransportError as exc:
             LOG.error("list friends failed: %s", exc)
         time.sleep(cfg.poll_interval_sec)
@@ -441,10 +583,27 @@ def phase_c1_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClien
 
 def phase_c2_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClient, store: SessionStore) -> None:
     """Auto-send non-sensitive replies; sensitive → blocked log only."""
-    LOG.info("=== C2: auto-reply loop (poll=%ss) ===", cfg.poll_interval_sec)
+    audit = AuditLog(cfg.audit_dir, phase="c2")
+    LOG.info(
+        "=== C2: auto-reply loop (poll=%ss, reply_mode=%s, max_per_poll=%s, send_resume=%s) ===",
+        cfg.poll_interval_sec,
+        cfg.reply_mode,
+        cfg.max_per_poll,
+        cfg.enable_send_resume,
+    )
+    LOG.info("audit log: %s", audit.md_path)
     while True:
         try:
-            _poll_once(cfg, transport, agent, store, phase="c2", dry_run=False)
+            _poll_once(
+                cfg,
+                transport,
+                agent,
+                store,
+                phase="c2",
+                dry_run=False,
+                limit=cfg.max_per_poll,
+                audit=audit,
+            )
         except BossTransportError as exc:
             LOG.error("list friends failed: %s", exc)
         time.sleep(cfg.poll_interval_sec)
@@ -462,7 +621,7 @@ def phase_c3_loop(cfg: BridgeConfig, transport: BossTransport, agent: AgentClien
             continue
 
         for friend in friends:
-            if not _needs_reply(friend):
+            if not _needs_reply(friend, reply_mode=cfg.reply_mode):
                 continue
 
             session_id = _friend_session_id(friend)
@@ -563,12 +722,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--fresh",
         action="store_true",
-        help="Ignore prior processed dedupe keys for this run (for report re-runs)",
+        help="Ignore prior processed dedupe keys for this run (for report re-runs; also skips new-mode baseline)",
+    )
+    parser.add_argument(
+        "--reply-mode",
+        choices=["new", "unread", "all"],
+        default=None,
+        help="new=ignore backlog at start (default); unread=unreadCount>0 only; all=any boss lastMsg",
     )
     args = parser.parse_args(argv)
 
     cfg = load_config()
     cfg.phase = args.phase
+    if args.reply_mode:
+        cfg.reply_mode = args.reply_mode
     setup_logging(cfg.log_level)
 
     transport = BossTransport(cfg.boss_cli_bin, cfg.boss_cli_timeout_sec)
@@ -582,7 +749,12 @@ def main(argv: list[str] | None = None) -> int:
     poll_phase = "c1" if args.phase == "c1" else "c2"
 
     if args.once:
-        LOG.info("=== %s: single poll (--limit %d) ===", args.phase.upper(), args.limit)
+        LOG.info(
+            "=== %s: single poll (--limit %d, reply_mode=%s) ===",
+            args.phase.upper(),
+            args.limit,
+            cfg.reply_mode,
+        )
         report: DryRunReport | None = None
         if args.report:
             report = DryRunReport(

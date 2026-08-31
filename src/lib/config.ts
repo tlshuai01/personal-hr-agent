@@ -12,7 +12,7 @@ export const config = {
   embeddingBaseUrl: env("EMBEDDING_BASE_URL"),
   embeddingApiKey: env("EMBEDDING_API_KEY", "ollama"),
   embeddingModel: env("EMBEDDING_MODEL"),
-  appName: env("NEXT_PUBLIC_APP_NAME", "个人介绍助手"),
+  appName: env("NEXT_PUBLIC_APP_NAME", "个人求职 Agent"),
   appUrl: env("APP_URL", "http://localhost:3000").replace(/\/$/, ""),
   databasePath: path.resolve(process.cwd(), env("DATABASE_PATH", "data/app.json")),
   knowledgeIndexPath: path.resolve(

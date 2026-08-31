@@ -29,8 +29,16 @@ class BridgeConfig:
     history_limit: int = 20
     log_level: str = "INFO"
     session_store_path: Path = field(default_factory=lambda: _BRIDGE_DIR / "data" / "sessions.json")
+    # new = ignore backlog at process start; unread = unreadCount>0 only; all = any boss lastMsg
+    reply_mode: str = "new"
+    # Cap replies per poll in continuous C1/C2 loops (safety + cost).
+    max_per_poll: int = 3
+    audit_dir: Path = field(default_factory=lambda: _BRIDGE_DIR / "reports" / "audit")
     # DANGEROUS: real attachment resume send. Default off. Requires cool API reverse.
     enable_send_resume: bool = False
+    # DANGEROUS: real job greet (friend/add). Default off.
+    enable_greet: bool = False
+    greet_delay_sec: float = 1.5
 
 
 def load_config() -> BridgeConfig:
@@ -46,6 +54,17 @@ def load_config() -> BridgeConfig:
         "yes",
         "on",
     )
+    enable_greet = _env("BOSS_ENABLE_GREET", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    reply_mode = _env("REPLY_MODE", "new").lower()
+    if reply_mode not in ("new", "unread", "all"):
+        reply_mode = "new"
+    audit = _env("AUDIT_DIR")
+    audit_dir = Path(audit) if audit else _BRIDGE_DIR / "reports" / "audit"
 
     return BridgeConfig(
         boss_cli_bin=_env("BOSS_CLI_BIN", "boss"),
@@ -58,5 +77,10 @@ def load_config() -> BridgeConfig:
         history_limit=int(_env("HISTORY_LIMIT", "20")),
         log_level=_env("LOG_LEVEL", "INFO"),
         session_store_path=store_path,
+        reply_mode=reply_mode,
+        max_per_poll=int(_env("MAX_PER_POLL", "3")),
+        audit_dir=audit_dir,
         enable_send_resume=enable_resume,
+        enable_greet=enable_greet,
+        greet_delay_sec=float(_env("GREET_DELAY_SEC", "1.5")),
     )

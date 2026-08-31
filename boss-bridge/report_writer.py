@@ -1,4 +1,4 @@
-"""Write structured dry-run reports for manual review."""
+"""Write structured reports for manual review (C1 dry-run / C2 sent)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 @dataclass
 class ReportEntry:
     index: int
-    status: str  # dry_run | policy_blocked | agent_blocked | error | skipped
+    status: str  # dry_run | sent | send_fail | policy_blocked | agent_blocked | error
     session_id: str
     boss_name: str
     company: str
@@ -71,7 +71,7 @@ class DryRunReport:
         path.parent.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc).astimezone()
         lines = [
-            "# Boss Bridge Dry-Run 对话记录",
+            "# Boss Bridge 对话记录",
             "",
             f"- **生成时间**：{now.strftime('%Y-%m-%d %H:%M %Z')}",
             f"- **阶段**：{self.phase}",
@@ -79,7 +79,11 @@ class DryRunReport:
             f"- **沟通列表**：{self.total_sessions} 会话，启发式需回复 {self.candidates}",
             f"- **本报告条数**：{len(self.entries)}",
             "",
-            "> 仅供 Owner 审阅回复质量。**未发送到 Boss**（C1 dry-run）。",
+            (
+                "> 仅供 Owner 审阅回复质量。**未发送到 Boss**（C1 dry-run）。"
+                if self.phase == "c1"
+                else "> 含真实发送记录。请定期审阅质量并标注改进点。"
+            ),
             "",
             "---",
             "",
@@ -105,22 +109,15 @@ class DryRunReport:
                     "",
                 ]
             )
-            if e.status == "dry_run":
-                lines.extend(
-                    [
-                        "### Agent 拟回复",
-                        "",
-                        e.answer or "(空)",
-                        "",
-                    ]
-                )
+            if e.status in ("dry_run", "sent", "send_fail"):
+                title = "### Agent 拟回复" if e.status == "dry_run" else "### 我方回复"
+                lines.extend([title, "", e.answer or "(空)", ""])
                 if e.actions:
-                    lines.append("**拟执行动作**：")
+                    lines.append("**动作**：")
                     for act in e.actions:
                         if act.get("type") == "send_resume":
                             lines.append(
                                 f"- 发送简历：`{act.get('label') or act.get('track')}`"
-                                "（API/CDP 待接，当前仅标记）"
                             )
                         else:
                             lines.append(f"- `{act}`")
@@ -131,14 +128,7 @@ class DryRunReport:
                         lines.append(f"- `{s}`")
                     lines.append("")
             elif e.block_reason:
-                lines.extend(
-                    [
-                        "### 拦截原因",
-                        "",
-                        e.block_reason,
-                        "",
-                    ]
-                )
+                lines.extend(["### 拦截原因", "", e.block_reason, ""])
             if e.error:
                 lines.extend(["### 错误", "", e.error, ""])
             lines.extend(["---", ""])
@@ -152,7 +142,7 @@ class DryRunReport:
             ]
         )
         for e in self.entries:
-            if e.status == "dry_run":
+            if e.status in ("dry_run", "sent", "send_fail"):
                 lines.append(f"| {e.index} | | |")
 
         path.write_text("\n".join(lines), encoding="utf-8")

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "comment": "搜岗/打招呼策略（无密钥）。真发仍需 BOSS_ENABLE_GREET=true + --force/--loop。",
+  "enabled": true,
+  "city": "上海",
+  "queries": ["Java Agent", "Java 后端 Agent", "数据开发 Flink"],
+  "count_per_query": 5,
+  "max_pages": 3,
+  "min_salary_k": 20,
+  "skip_keywords": ["日结", "实习", "日薪", "兼职", "暑期", "校招"],
+  "active_hours": {
+    "start": "09:00",
+    "end": "18:00",
+    "timezone_note": "使用本机本地时间"
+  },
+  "greet_delay_sec": 1.5,
+  "loop_interval_sec": 1800,
+  "reply_signature": "[本条消息由个人求职 Agent 发送]"
+}

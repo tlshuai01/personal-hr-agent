@@ -23,6 +23,9 @@ HISTORY_MSG_URL = "/wapi/zpchat/geek/historyMsg"
 LAST_MSG_URL = "/wapi/zpchat/geek/userLastMsg"
 USER_INFO_URL = "/wapi/zpuser/wap/getUserInfo.json"
 WT_URL = "/wapi/zppassport/get/wt"
+JOB_SEARCH_URL = "/wapi/zpgeek/search/joblist.json"
+FRIEND_ADD_URL = "/wapi/zpgeek/friend/add.json"
+WEB_GEEK_JOB = "https://www.zhipin.com/web/geek/job"
 
 
 class BossTransportError(RuntimeError):
@@ -141,6 +144,74 @@ class BossTransport:
         payload = self._run("chat", "--json")
         friends = self._unwrap_list(payload)
         return [self._normalize_friend(f) for f in friends if isinstance(f, dict)]
+
+    def search_jobs(
+        self,
+        query: str,
+        *,
+        city: str = "101020100",
+        page: int = 1,
+        page_size: int = 15,
+        experience: str | None = None,
+        degree: str | None = None,
+        salary: str | None = None,
+    ) -> list[dict]:
+        """Search geek job list. Returns normalized cards (see job_search.normalize_job_card)."""
+        from job_search import normalize_job_card
+        from urllib.parse import urlencode
+
+        params: dict[str, Any] = {
+            "query": query,
+            "city": city,
+            "page": page,
+            "pageSize": page_size,
+        }
+        if experience:
+            params["experience"] = experience
+        if degree:
+            params["degree"] = degree
+        if salary:
+            params["salary"] = salary
+
+        referer = f"{WEB_GEEK_JOB}?{urlencode({'query': query})}"
+        cookies = self._load_cookie_dict()
+        with self._http(cookies) as client:
+            try:
+                zp = client.get(
+                    JOB_SEARCH_URL,
+                    action="search jobs",
+                    params=params,
+                    referer=referer,
+                )
+            except BossHttpError as exc:
+                raise BossTransportError(str(exc)) from exc
+        job_list = zp.get("jobList") if isinstance(zp, dict) else None
+        if not isinstance(job_list, list):
+            return []
+        return [
+            normalize_job_card(item)
+            for item in job_list
+            if isinstance(item, dict)
+        ]
+
+    def greet(self, security_id: str, *, lid: str = "") -> dict[str, Any]:
+        """Platform greeting / 打招呼 via friend/add.json."""
+        if not security_id:
+            raise BossTransportError("greet requires securityId")
+        params: dict[str, str] = {"securityId": security_id}
+        if lid:
+            params["lid"] = lid
+        cookies = self._load_cookie_dict()
+        with self._http(cookies) as client:
+            try:
+                return client.get(
+                    FRIEND_ADD_URL,
+                    action="greet",
+                    params=params,
+                    referer=CHAT_REFERER,
+                )
+            except BossHttpError as exc:
+                raise BossTransportError(str(exc)) from exc
 
     def _list_friends_http(self, cookies: dict[str, str], *, max_pages: int) -> list[dict]:
         all_friends: list[dict] = []

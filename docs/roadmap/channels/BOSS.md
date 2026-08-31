@@ -29,13 +29,14 @@
 - [x] Geek 侧文本发送：MQTT 优先（zhipin-geek）；CLI/HTTP 兜底
 - [x] 统一 HTTP：`boss_http.py`（`zp_token` / 抖动限流 / cookie 回写 / 37·9·121）
 - [x] poll：`enrich_last_messages`（userLastMsg）再判 `_needs_reply`
+- [x] **只回新消息**：默认 `REPLY_MODE=new`（启动 baseline 当前 lastMsg，之后只处理变化）；`unread` / `all` 可选；CLI `--reply-mode`
 - [x] Boss 话术：少追问岗位、主动推简历；禁「知识库/不想猜测」元话术
 - [x] `lastMessageInfo.fromId` vs `friend.uid`：区分自己发的消息，避免回自己
 - [x] **已发简历启发式**：扫 `historyMsg`（`对方已查看了您的附件简历` / `aid=38` / `encryptResumeId`）→ `meta.resumeAlreadySent`，避免重复推简历
 - [x] **本地 `resumeSent*`**：`SessionStore` 持久化；热路径本地优先，历史命中 bootstrap 回写；真发入口默认 OFF（`BOSS_ENABLE_SEND_RESUME`）
-- [ ] 未读-only 模式配置 `REPLY_UNREAD_ONLY=true`（可选收紧）
-- [ ] 速率：单轮 `--limit`，全局每日上限
-- [ ] 审计日志：谁问了啥、回了啥（本地文件，不上传）
+- [ ] 速率：单轮 `--limit` / 循环 `MAX_PER_POLL`，全局每日上限（前两项已有）
+- [x] 审计日志：`reports/audit/c2-*.md` + `.jsonl`（本地，不上传）
+- [ ] **主动搜职位 + 打招呼** → [`BOSS_GREET.md`](./BOSS_GREET.md)（G0 dry-run 已接线）
 
 ### 发简历真链路 + 本地会话状态（P1）
 
