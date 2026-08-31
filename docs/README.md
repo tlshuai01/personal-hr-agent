@@ -3,6 +3,7 @@
 可分享、带过期令牌的网页对话 Agent：基于你的 `knowledge/` 知识库 + RAG，准确回答经历 / 项目 / 技术问题。
 
 > **完整架构/复现规格（给其他 Coding Agent）：** [`PERSONAL_HR_AGENT_SPEC.md`](PERSONAL_HR_AGENT_SPEC.md)  
+> **当前架构图（Mermaid + 模块说明）：** [`PROJECT_ARCHITECTURE.md`](PROJECT_ARCHITECTURE.md)  
 > **项目约定：** [`../CLAUDE.md`](../CLAUDE.md)
 
 ## 功能

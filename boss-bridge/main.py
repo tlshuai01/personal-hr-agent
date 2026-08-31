@@ -238,6 +238,7 @@ def _handle_friend(
         return True
 
     resume_sent = _resolve_resume_already_sent(friend, store, session_id, transport)
+    friend = transport.enrich_friend_job(friend)
 
     try:
         result = agent.request_reply(
@@ -347,11 +348,24 @@ def _handle_friend(
             pending = transport.find_pending_resume_request(friend)
             source = "agree_request" if pending else "proactive"
             try:
-                transport.send_resume(friend, track=track or None)
-                store.mark_resume_sent(
-                    session_id, track=track or None, source=source
+                sent = transport.send_resume(
+                    friend,
+                    track=track or None,
+                    user_text=last_user,
                 )
-                LOG.info("[RESUME-SENT] %s track=%s source=%s", session_id, track, source)
+                store.mark_resume_sent(
+                    session_id,
+                    track=str(sent.get("track") or track or None),
+                    source=source,
+                )
+                LOG.info(
+                    "[RESUME-SENT] %s track=%s lang=%s name=%s source=%s",
+                    session_id,
+                    sent.get("track"),
+                    sent.get("lang"),
+                    sent.get("resumeName"),
+                    source,
+                )
             except BossTransportError as exc:
                 LOG.error("[RESUME-FAIL] %s | %s", session_id, exc)
                 # text already sent; still mark processed
@@ -376,6 +390,10 @@ def _poll_once(
 ) -> int:
     """Single poll iteration. Returns count of friends processed."""
     friends = transport.list_friends()
+    try:
+        transport.enrich_last_messages(friends)
+    except Exception as exc:  # noqa: BLE001
+        LOG.debug("enrich_last_messages skipped: %s", exc)
     candidates = [f for f in friends if _needs_reply(f)]
     skipped_self = sum(1 for f in friends if _last_message_from_self(f))
     if report:

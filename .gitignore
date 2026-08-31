@@ -24,5 +24,7 @@ knowledge/**
 next-env.d.ts
 
 boss-bridge/data/
+boss-bridge/_ref/
+boss-bridge/.venv-geek/
 .idea/
 

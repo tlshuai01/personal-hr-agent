@@ -257,7 +257,8 @@ export async function retrieve(
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
+  const top = scored.slice(0, Math.max(topK, 10));
+  return ensureTopicChunks(query, top, scored, topK);
 }
 
 const POLICY_SOURCE_PREFIXES = [
@@ -297,14 +298,26 @@ function topicPinBoost(query: string, source: string, text: string): number {
       boost += 0.3;
     }
   }
-  if (/薪|期望|总包|预算|给不到|现薪/.test(query) && source.includes("compensation.md")) {
-    boost += 0.45;
+  if (
+    /薪|期望|总包|预算|给不到|现薪|到岗|离职|学历|统招/.test(query) &&
+    source.includes("boss-quick-facts.md")
+  ) {
+    boost += 0.9;
   }
   if (
     /学历|全日制|统招|本科|硕士/.test(query) &&
     source.includes("education.md")
   ) {
-    boost += 0.45;
+    boost += 0.7;
+  }
+  if (/到岗|入职|多久.*到|需要多久/.test(query) && source.includes("availability.md")) {
+    boost += 0.55;
+  }
+  if (
+    /离职|为什么.*走|上家|看机会/.test(query) &&
+    source.includes("leaving-narrative.md")
+  ) {
+    boost += 0.7;
   }
   if (
     /简历|感兴趣|聊聊|方便发|发简历|看看.*机会|打招呼/.test(query) &&
@@ -320,4 +333,36 @@ function topicPinBoost(query: string, source: string, text: string): number {
     boost += 0.25;
   }
   return boost;
+}
+
+/** 清单式多问时，强制塞入关键政策文档（避免只被 availability 占满 topK） */
+function ensureTopicChunks(
+  query: string,
+  ranked: RetrievedChunk[],
+  allSorted: RetrievedChunk[],
+  topK: number,
+): RetrievedChunk[] {
+  const rules: Array<{ re: RegExp; needle: string }> = [
+    {
+      re: /薪|期望|总包|现薪|预算|给不到|到岗|入职|离职|学历|统招|全日制|日语|日英|简历|感兴趣|聊聊/,
+      needle: "boss-quick-facts.md",
+    },
+    { re: /薪|期望|总包|现薪|预算|给不到/, needle: "compensation.md" },
+    { re: /学历|全日制|统招|本科|硕士/, needle: "education.md" },
+    { re: /到岗|入职|需要多久/, needle: "availability.md" },
+    { re: /离职|上家|为什么.*走|看机会|是否离职|在职/, needle: "leaving-narrative.md" },
+    { re: /离职|在哪个城市|现居|base|在职|是否离职/, needle: "identity.md" },
+    { re: /日语|日英|双语|外语|英语/, needle: "identity.md" },
+    { re: /简历|感兴趣|聊聊|方便发/, needle: "boss-channel.md" },
+  ];
+  const out = ranked.slice(0, topK);
+  const has = (needle: string) => out.some((c) => c.source.includes(needle));
+  for (const rule of rules) {
+    if (!rule.re.test(query) || has(rule.needle)) continue;
+    const cand = allSorted.find((c) => c.source.includes(rule.needle));
+    if (!cand) continue;
+    if (out.length >= topK) out.pop();
+    out.unshift(cand);
+  }
+  return out.slice(0, topK);
 }

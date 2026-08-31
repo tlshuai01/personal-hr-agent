@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "comment": "Boss 账号附件简历目录（resumeId 来自历史发送）。选轨规则见 resume_select.py。",
+  "attachments": [
+    {
+      "resumeId": "373862777239560",
+      "name": "简历-田麟-6年经验-后端AI方向",
+      "track": "backend-agent",
+      "lang": "zh"
+    },
+    {
+      "resumeId": "376417440847906",
+      "name": "简历-田麟-6年-数据开发+ai",
+      "track": "data-agent",
+      "lang": "zh"
+    },
+    {
+      "resumeId": "378973425862657",
+      "name": "resume-lin-tian-backend-ai-en",
+      "track": "backend-agent",
+      "lang": "en"
+    }
+  ]
+}

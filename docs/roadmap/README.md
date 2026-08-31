@@ -26,6 +26,7 @@
 | 分类 | 文档 | 状态 |
 |------|------|------|
 | 架构 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 已定方向，待落地拆分 |
+| **当前架构图** | [../PROJECT_ARCHITECTURE.md](../PROJECT_ARCHITECTURE.md) | **已实现快照 + Mermaid** |
 | RAG | [rag/DESIGN.md](./rag/DESIGN.md) | 一阶段已实现；二阶段待增强 |
 | 记忆 | [memory/DESIGN.md](./memory/DESIGN.md) | 预留 |
 | Chat API | [chat/API.md](./chat/API.md) | 部分实现；待统一契约 |
@@ -45,9 +46,11 @@
 ### P0 — 当前迭代（Boss 试行）
 
 - [x] C0：Boss Cookie + 会话列表
-- [ ] C1：dry-run 生成回复（`--once --limit 3`）
-- [ ] DeepSeek 对话链路 smoke / eval
-- [ ] 渠道与 Core 边界文档化（本目录）
+- [x] C1 Core：`smoke:bridge` + DeepSeek；薪资/到岗可自动答；微信仍 blocked
+- [x] C1 Boss：`boss-login.py --c1` / `main.py --phase c1 --once --limit 3`
+- [x] 检索评测 ≥90%（`eval:retrieval` 96.2%）
+- [x] 渠道与 Core 边界文档化（`PROJECT_ARCHITECTURE.md`）
+- [x] 一键验收：`npm run p0:check`（需 dev 运行中）
 
 ### P1 — Chat Core 稳固
 

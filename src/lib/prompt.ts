@@ -65,11 +65,22 @@ export function inferResumeTrack(
     "血缘",
     "数据治理",
     "数据中台",
+    "数据开发",
+    "数据平台",
   ];
   if (dataHints.some((h) => t.includes(h.toLowerCase()) || t.includes(h))) {
     return "data-agent";
   }
   return "backend-agent";
+}
+
+/** 仅当对方明确要英文简历时才发英文附件（外企/英文岗位 ≠ 要英文简历） */
+export function wantsEnglishResume(userText?: string): boolean {
+  const t = (userText || "").trim();
+  if (!t) return false;
+  return /英文简历|英语简历|英文版简历|english\s*resume|resume\s*in\s*english|发.*英文|要.*英文.*简历|英文的/.test(
+    t,
+  );
 }
 
 export function resumeTrackLabel(track: ResumeTrack): string {

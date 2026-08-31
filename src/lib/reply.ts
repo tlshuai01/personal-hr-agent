@@ -9,6 +9,7 @@ import {
   resumeTrackLabel,
   sanitizeCandidateReply,
   shouldOfferResume,
+  wantsEnglishResume,
 } from "@/lib/prompt";
 import { retrieve } from "@/lib/rag";
 
@@ -26,6 +27,7 @@ export type ReplyAction = {
   type: "send_resume";
   track: ResumeTrack;
   label: string;
+  lang: "zh" | "en";
 };
 
 const SENSITIVE_PATTERNS: Array<{ re: RegExp; reason: string }> = [
@@ -124,10 +126,12 @@ export async function generateReply(
     shouldOfferResume(lastUser.content)
   ) {
     const track = inferResumeTrack(options.meta?.jobTitle, lastUser.content);
+    const lang = wantsEnglishResume(lastUser.content) ? "en" : "zh";
     actions.push({
       type: "send_resume",
       track,
-      label: resumeTrackLabel(track),
+      lang,
+      label: `${resumeTrackLabel(track)}/${lang === "en" ? "英文" : "中文"}`,
     });
   }
 

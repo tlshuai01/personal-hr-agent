@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { config } from "@/lib/config";
 import { streamChatCompletion } from "@/lib/llm";
-import { formatRetrievedContext, SYSTEM_PROMPT } from "@/lib/prompt";
+import { formatRetrievedContext, getSystemPrompt } from "@/lib/prompt";
 import { retrieve } from "@/lib/rag";
 import { detectSensitiveUserMessage } from "@/lib/reply";
 import { saveChatMessage } from "@/lib/db";
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
   const sources = [...new Set(retrieved.map((r) => r.source))].join(",");
 
   const llmMessages = [
-    { role: "system" as const, content: SYSTEM_PROMPT },
+    { role: "system" as const, content: getSystemPrompt("share") },
     { role: "system" as const, content: context },
     ...messages.map((m) => ({
       role: m.role as "user" | "assistant",

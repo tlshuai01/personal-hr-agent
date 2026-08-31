@@ -7,10 +7,14 @@ Boss 直聘 ↔ `personal-hr-agent` 的分阶段桥接守护进程（非官方 A
 ```
 Boss 直聘 (Cookie)  ←→  boss-bridge (Python)  ←→  POST /api/internal/reply
                               ↑
-                    boss-cli 登录 + 直接 HTTP 拉列表（page=1+）
+         Cookie HTTP（列表/历史/发简历）+ MQTT（文本）+ boss-cli 登录
 ```
 
+依赖：`pip install -r requirements.txt`（含 `httpx`、`paho-mqtt`）。
+
 试行进度见 [`PROGRESS.md`](PROGRESS.md)。**C0 已通过**（沟通列表需 `page` 参数，勿依赖裸 `boss chat`）。
+
+传输对齐参考：[zhipin-geek](https://github.com/DuanXiaoWen/zhipin-geek)（本地 `_ref/`，不提交）。
 
 ## 阶段说明
 

@@ -9,9 +9,10 @@
 | **C0** | **已通过** | Cookie 登录 OK；沟通列表可拉取（约 300 会话）；需 `page=1` |
 | **C1 Core 链路** | **已通过** | `npm run smoke:bridge` + DeepSeek 生成 + 薪资 blocked |
 | **C1 Boss dry-run** | **已通过** | 多轮报告见 `reports/`；简历已发本地化已落地 |
-| **发简历真链路** | **封装中 / 默认 OFF** | `send_resume` stub + pending 解析；写探测触发 code=36，冷静期后再反推 |
+| **发简历真链路** | **已通 / 默认 OFF** | `resumeId` 选轨；`BOSS_ENABLE_SEND_RESUME`；谷女士实测中文后端 OK |
+| **传输层** | **已对齐 zhipin-geek** | MQTT 文本、`boss_http` 限流、`historyMsg` 分页、`userLastMsg` |
 | **C2** | 未开 | 自动发送，确认 C1 日志后再开 |
-| **C3** | 未开 | 多轮历史 |
+| **C3** | 未开 | 多轮历史（分页已具备） |
 
 更新日期：2026-08-31
 

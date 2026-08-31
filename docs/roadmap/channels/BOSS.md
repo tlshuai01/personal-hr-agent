@@ -14,18 +14,25 @@
 ## 技术栈
 
 - Python：`boss-bridge/`
-- 登录：`kabi-boss-cli` / Cookie
+- 登录：`kabi-boss-cli` / Cookie（`~/.config/boss-cli/credential.json`）
 - 列表：`GET /wapi/zprelation/friend/getGeekFriendList.json?page=N`
+- 最近消息：`GET /wapi/zpchat/geek/userLastMsg?friendIds=`（poll 后 enrich）
+- 历史：`GET /wapi/zpchat/geek/historyMsg` + `maxMsgId` 分页
+- 文本发送：**MQTT**（`mqtt_chat.py`，对齐 zhipin-geek）→ CLI → HTTP fallback
+- 发简历：`exchange/request type=3` + `resumeId`（`resume_catalog.json`）
 - 对话 Core：`POST /api/internal/reply`
+- 参考仓（本地不提交）：`boss-bridge/_ref/zhipin-geek/`
 
 ## 待开发
 
-- [ ] 拉取单会话历史 API（C3 稳定）
-- [ ] Geek 侧 send 接口实测与 fallback
+- [x] 拉取单会话历史 API（`historyMsg` + 分页；C3 仍可再稳）
+- [x] Geek 侧文本发送：MQTT 优先（zhipin-geek）；CLI/HTTP 兜底
+- [x] 统一 HTTP：`boss_http.py`（`zp_token` / 抖动限流 / cookie 回写 / 37·9·121）
+- [x] poll：`enrich_last_messages`（userLastMsg）再判 `_needs_reply`
 - [x] Boss 话术：少追问岗位、主动推简历；禁「知识库/不想猜测」元话术
 - [x] `lastMessageInfo.fromId` vs `friend.uid`：区分自己发的消息，避免回自己
 - [x] **已发简历启发式**：扫 `historyMsg`（`对方已查看了您的附件简历` / `aid=38` / `encryptResumeId`）→ `meta.resumeAlreadySent`，避免重复推简历
-- [x] **本地 `resumeSent*`**：`SessionStore` 持久化；热路径本地优先，历史命中 bootstrap 回写；真发入口已封装默认 OFF（`BOSS_ENABLE_SEND_RESUME`）
+- [x] **本地 `resumeSent*`**：`SessionStore` 持久化；热路径本地优先，历史命中 bootstrap 回写；真发入口默认 OFF（`BOSS_ENABLE_SEND_RESUME`）
 - [ ] 未读-only 模式配置 `REPLY_UNREAD_ONLY=true`（可选收紧）
 - [ ] 速率：单轮 `--limit`，全局每日上限
 - [ ] 审计日志：谁问了啥、回了啥（本地文件，不上传）
@@ -34,16 +41,23 @@
 
 当前 dry-run 只产出 `actions: [{type:"send_resume"}]`；是否已发过：本地标记优先，否则扫历史并 bootstrap。
 
-- [x] **探测 / 封装发简历入口（本切片，默认 OFF）**
+- [x] **探测 / 封装发简历入口（对齐 zhipin-geek）**
   - `BossTransport.find_pending_resume_request`：解析 HR「我想要一份您的附件简历」卡片（agree deep-link `aid=38`）
-  - `BossTransport.send_resume`：准备 `agree_request` / `proactive` payload；**真 HTTP 未接通**（探测写接口触发 `code=36` 账户异常行为，已停写探测）
-  - `BOSS_ENABLE_SEND_RESUME=false`（默认）：C1 dry-run 只在报告记 intent；C2 即使有 action 也 `[RESUME-SKIP]`
-  - 开启后成功路径会 `mark_resume_sent(..., source=agree_request|proactive)`；当前开启仍会 `[RESUME-FAIL]` 直到 CDP/API 确认
-  - 单测：`python -m unittest tests.test_resume_markers`（请求卡 ≠ 已发）
-- [ ] **真发 API / CDP 兜底**（账号冷静期后再做；勿连打 exchange/agree）
-  - 主动发：首轮兴趣 / 对方要简历时执行 `send_resume`
-  - 被动同意：请求卡 → 同意（`aid=38`）后确认发送成功
-- [x] **发送成功写本地标识**（`SessionStore` / `data/sessions.json`）— *历史 bootstrap 已落地；真发成功写 `proactive`/`agree_request` 已接线，待 API*
+  - `BossTransport.send_resume`：`POST /wapi/zpchat/exchange/request`（`type=3`）+ 同意卡 `acceptItemContact`；`securityId` 优先 `getBossData`；请求头对齐仓库：`X-Requested-With` + `zp_token=bst`
+  - **2026-08-31 实测**（谷女士@软通）：缺 `zp_token` 时 `121`；补齐后 **`code=0`**。首次误发英文默认件；已按 JD 选附件：
+    - 后端中文 `简历-田麟-6年经验-后端AI方向` / 数据中文 `简历-田麟-6年-数据开发+ai` / 英文仅明确要时发 `resume-lin-tian-backend-ai-en`
+    - 目录：`boss-bridge/resume_catalog.json`；选轨：`resume_select.py`（`jobName`+对方文案；外企≠英文简历）
+  - 单次脚本：`python scripts/send_resume_once.py --session-id … [--dry-run] [--force]`
+  - `BOSS_ENABLE_SEND_RESUME=false`（默认）：C1 dry-run 只记 intent；C2 `[RESUME-SKIP]`
+  - 单测：`python -m unittest tests.test_resume_markers tests.test_resume_select tests.test_mqtt_encode`
+- [ ] **C2 批量真发**（单会话已通；开闸前注意风控，曾有 `code=36`）
+  - 主动发 / 被动同意路径已接线；文本走 MQTT
+- [x] **对齐 zhipin-geek 的传输层优化（2026-08-31）**
+  - `boss_http.py`：统一客户端
+  - `mqtt_chat.py`：文本 MQTT
+  - `historyMsg` 分页 + `userLastMsg` enrich
+  - 参考源码：`_ref/zhipin-geek/`（gitignore）
+- [x] **发送成功写本地标识**（`SessionStore` / `data/sessions.json`）
   - 字段：`resumeSentAt`、`resumeTrack`、`resumeSource`（`history_bootstrap` | `proactive` | `agree_request`）
   - 热路径：`resumeSentAt` 已有 → 直接 `resumeAlreadySent=true`，**跳过** `historyMsg` 扫描
   - 冷启动 / 无标记：仍用现有历史启发式 bootstrap 一次，成功后回写本地

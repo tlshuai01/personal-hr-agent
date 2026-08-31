@@ -1,5 +1,6 @@
 httpx>=0.27.0
 python-dotenv>=1.0.0
+paho-mqtt>=1.6.1
 
 # Boss CLI (install separately, provides `boss` command):
 # pip install kabi-boss-cli
