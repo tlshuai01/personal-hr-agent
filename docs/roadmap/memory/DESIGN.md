@@ -17,7 +17,7 @@ SPEC 一阶段明确：**不做跨会话长期记忆**（避免 HR 侧误以为 
 
 - `SessionStore`（`boss-bridge/data/sessions.json`）：dedupe key、`messages[]` 最近 40 条
 - 用途：多轮 C3、避免同一条 lastMsg 重复回复
-- **已发简历**：`resumeSentAt` / `resumeTrack` / `resumeSource` 已落地
+- **已发简历**：`resumeSentAt` / `resumeTrack` / `resumeSource` 已落地（`history_bootstrap`；`proactive`/`agree_request` 已接线，真发 API 默认 OFF）
   - 热路径：本地有标记 → 跳过 `historyMsg` 扫描
   - 冷启动：历史启发式命中 → `history_bootstrap` 回写本地
   - 真发成功写 `proactive`：待 Boss 发简历 API

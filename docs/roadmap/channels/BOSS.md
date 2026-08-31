@@ -25,7 +25,7 @@
 - [x] Boss 话术：少追问岗位、主动推简历；禁「知识库/不想猜测」元话术
 - [x] `lastMessageInfo.fromId` vs `friend.uid`：区分自己发的消息，避免回自己
 - [x] **已发简历启发式**：扫 `historyMsg`（`对方已查看了您的附件简历` / `aid=38` / `encryptResumeId`）→ `meta.resumeAlreadySent`，避免重复推简历
-- [x] **本地 `resumeSent*`**：`SessionStore` 持久化；热路径本地优先，历史命中 bootstrap 回写（真发 API 仍待接）
+- [x] **本地 `resumeSent*`**：`SessionStore` 持久化；热路径本地优先，历史命中 bootstrap 回写；真发入口已封装默认 OFF（`BOSS_ENABLE_SEND_RESUME`）
 - [ ] 未读-only 模式配置 `REPLY_UNREAD_ONLY=true`（可选收紧）
 - [ ] 速率：单轮 `--limit`，全局每日上限
 - [ ] 审计日志：谁问了啥、回了啥（本地文件，不上传）
@@ -34,13 +34,20 @@
 
 当前 dry-run 只产出 `actions: [{type:"send_resume"}]`；是否已发过：本地标记优先，否则扫历史并 bootstrap。
 
-- [ ] **探测 / 封装发简历 API**（或 Chrome CDP 兜底）
+- [x] **探测 / 封装发简历入口（本切片，默认 OFF）**
+  - `BossTransport.find_pending_resume_request`：解析 HR「我想要一份您的附件简历」卡片（agree deep-link `aid=38`）
+  - `BossTransport.send_resume`：准备 `agree_request` / `proactive` payload；**真 HTTP 未接通**（探测写接口触发 `code=36` 账户异常行为，已停写探测）
+  - `BOSS_ENABLE_SEND_RESUME=false`（默认）：C1 dry-run 只在报告记 intent；C2 即使有 action 也 `[RESUME-SKIP]`
+  - 开启后成功路径会 `mark_resume_sent(..., source=agree_request|proactive)`；当前开启仍会 `[RESUME-FAIL]` 直到 CDP/API 确认
+  - 单测：`python -m unittest tests.test_resume_markers`（请求卡 ≠ 已发）
+- [ ] **真发 API / CDP 兜底**（账号冷静期后再做；勿连打 exchange/agree）
   - 主动发：首轮兴趣 / 对方要简历时执行 `send_resume`
-  - 被动同意：对方「请求附件简历」卡片 → 同意（`aid=38` 一类）后确认发送成功
-- [x] **发送成功写本地标识**（`SessionStore` / `data/sessions.json`）— *历史 bootstrap 已落地；真发成功写 `proactive` 待 API*
-  - 字段：`resumeSentAt`、`resumeTrack`、`resumeSource`（`history_bootstrap` | 预留 `proactive`）
+  - 被动同意：请求卡 → 同意（`aid=38`）后确认发送成功
+- [x] **发送成功写本地标识**（`SessionStore` / `data/sessions.json`）— *历史 bootstrap 已落地；真发成功写 `proactive`/`agree_request` 已接线，待 API*
+  - 字段：`resumeSentAt`、`resumeTrack`、`resumeSource`（`history_bootstrap` | `proactive` | `agree_request`）
   - 热路径：`resumeSentAt` 已有 → 直接 `resumeAlreadySent=true`，**跳过** `historyMsg` 扫描
   - 冷启动 / 无标记：仍用现有历史启发式 bootstrap 一次，成功后回写本地
+  - **注意**：请求文案「我想要一份您的附件简历」已从「已发」标记中拆出（`RESUME_REQUEST_MARKERS`）
 - [x] **会话状态本地持久化（本切片）** — 详见 [`../memory/DESIGN.md`](../memory/DESIGN.md)
   - 必持久：`processed` 去重、`resumeSent*`、最近 N 条 messages
   - 建议持久：`jobTrack` / flags 字段已预留；摘要仍可选

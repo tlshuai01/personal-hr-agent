@@ -207,6 +207,7 @@ def _handle_friend(
     transport: BossTransport,
     report: DryRunReport | None = None,
     ignore_processed: bool = False,
+    enable_send_resume: bool = False,
 ) -> bool:
     """Process one friend. Returns True if handled (including skips marked processed)."""
     session_id = _friend_session_id(friend)
@@ -283,14 +284,19 @@ def _handle_friend(
     reply = (result.get("reply") or "").strip()
     sources = list(result.get("sources") or [])
     actions = list(result.get("actions") or [])
+    send_resume_actions = [
+        a
+        for a in actions
+        if isinstance(a, dict) and a.get("type") == "send_resume"
+    ]
+
     if dry_run:
         action_note = ""
         if resume_sent:
             action_note += " | resume_already_sent"
-        for act in actions:
-            if isinstance(act, dict) and act.get("type") == "send_resume":
-                # Dry-run only: mark intended send in report; do not call Boss API
-                action_note += f" | resume={act.get('label') or act.get('track')}"
+        for act in send_resume_actions:
+            action_note += f" | resume={act.get('label') or act.get('track')}"
+            # dry-run: never call Boss; only report intent
         LOG.info(
             "[DRY-RUN] %s | %s @ %s%s\n  Q: %s\n  A: %s",
             session_id,
@@ -316,17 +322,41 @@ def _handle_friend(
             store.append_assistant(session_id, reply)
         return True
 
-    if not reply:
+    if not reply and not send_resume_actions:
         store.mark_processed(dedupe_key)
         return True
 
-    try:
-        transport.send_message(friend, reply)
-        LOG.info("[SENT] %s | %s | %s chars", session_id, friend.get("name"), len(reply))
-        store.append_assistant(session_id, reply)
-    except BossTransportError as exc:
-        LOG.error("[SEND-FAIL] %s | %s", session_id, exc)
-        return False
+    if reply:
+        try:
+            transport.send_message(friend, reply)
+            LOG.info("[SENT] %s | %s | %s chars", session_id, friend.get("name"), len(reply))
+            store.append_assistant(session_id, reply)
+        except BossTransportError as exc:
+            LOG.error("[SEND-FAIL] %s | %s", session_id, exc)
+            return False
+
+    if send_resume_actions and not resume_sent:
+        track = str(send_resume_actions[0].get("track") or "")
+        if not enable_send_resume:
+            LOG.info(
+                "[RESUME-SKIP] %s enable_send_resume=false (would send %s)",
+                session_id,
+                track or send_resume_actions[0].get("label"),
+            )
+        else:
+            pending = transport.find_pending_resume_request(friend)
+            source = "agree_request" if pending else "proactive"
+            try:
+                transport.send_resume(friend, track=track or None)
+                store.mark_resume_sent(
+                    session_id, track=track or None, source=source
+                )
+                LOG.info("[RESUME-SENT] %s track=%s source=%s", session_id, track, source)
+            except BossTransportError as exc:
+                LOG.error("[RESUME-FAIL] %s | %s", session_id, exc)
+                # text already sent; still mark processed
+                store.mark_processed(dedupe_key)
+                return False
 
     store.mark_processed(dedupe_key)
     return True
@@ -372,6 +402,7 @@ def _poll_once(
             transport=transport,
             report=report,
             ignore_processed=ignore_processed,
+            enable_send_resume=cfg.enable_send_resume,
         ):
             processed += 1
             if not dry_run:

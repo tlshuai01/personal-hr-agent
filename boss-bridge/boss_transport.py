@@ -8,7 +8,6 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
-
 import httpx
 
 LOG = logging.getLogger("boss-bridge.transport")
@@ -265,6 +264,50 @@ class BossTransport:
             return False
         return history_indicates_resume_sent(raw)
 
+    def find_pending_resume_request(self, friend: dict, *, limit: int = 40) -> dict | None:
+        """Return pending HR resume-request card, or None."""
+        boss_id = friend.get("encryptUid") or friend.get("encryptBossId")
+        cookies = self._load_cookie_dict()
+        if not boss_id or not cookies:
+            return None
+        try:
+            raw = self._fetch_history_http(str(boss_id), cookies=cookies, limit=limit)
+        except Exception as exc:  # noqa: BLE001
+            LOG.debug("find_pending_resume_request failed: %s", exc)
+            return None
+        return find_pending_resume_request(raw)
+
+    def send_resume(
+        self,
+        friend: dict,
+        *,
+        track: str | None = None,
+        encrypt_resume_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Send / agree to send attachment resume.
+
+        Live HTTP path is gated and currently incomplete (Boss anti-bot / reverse TBD).
+        Prefer agreeing to a pending request card (deep-link aid=38).
+        """
+        pending = self.find_pending_resume_request(friend)
+        mode = "agree_request" if pending else "proactive"
+        payload = {
+            "mode": mode,
+            "track": track,
+            "encryptResumeId": encrypt_resume_id,
+            "pending": pending,
+            "bossUid": friend.get("uid"),
+            "encryptUid": friend.get("encryptUid"),
+        }
+        # Do not hit write endpoints unless explicitly enabled at call site;
+        # this method still raises until CDP/API is verified post cool-down.
+        raise BossTransportError(
+            "send_resume HTTP/CDP not ready: Boss returned code=36 during probe. "
+            f"Prepared {mode} payload for {friend.get('name')} "
+            f"(pending_mid={pending.get('mid') if pending else None}). "
+            "Cool down account, then re-enable BOSS_ENABLE_SEND_RESUME after reverse is confirmed."
+        )
+
     @staticmethod
     def _normalize_history(
         raw: list[dict],
@@ -409,7 +452,12 @@ RESUME_SENT_MARKERS = (
     "附件简历已发送给对方",
     "简历收到",
     "已收到您的附件简历",
+)
+
+RESUME_REQUEST_MARKERS = (
     "我想要一份您的附件简历",
+    "请求您的附件简历",
+    "请发送附件简历",
 )
 
 
@@ -439,7 +487,10 @@ def _strip_html(text: str) -> str:
 
 
 def history_indicates_resume_sent(raw: list[dict]) -> bool:
-    """True if geek already sent / agreed to send attachment resume."""
+    """True if geek already sent / agreed to send attachment resume.
+
+    HR request-only cards (我想要一份您的附件简历) do NOT count as sent.
+    """
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -460,3 +511,65 @@ def history_indicates_resume_sent(raw: list[dict]) -> bool:
         if "encryptResumeId" in extra or "attach-resume" in extra:
             return True
     return False
+
+
+def find_pending_resume_request(raw: list[dict]) -> dict[str, Any] | None:
+    """Find HR attachment-resume request card that is not yet operated.
+
+    Deep-link shape (实测): bosszp://...type=sendaction&uid=<bossUid>&aid=38
+    """
+    for item in reversed(raw):
+        if not isinstance(item, dict):
+            continue
+        body = item.get("body") if isinstance(item.get("body"), dict) else {}
+        dialog = body.get("dialog") if isinstance(body.get("dialog"), dict) else None
+        if not dialog:
+            continue
+        text = str(dialog.get("text") or dialog.get("title") or "")
+        if not any(m in text for m in RESUME_REQUEST_MARKERS):
+            buttons = dialog.get("buttons") if isinstance(dialog.get("buttons"), list) else []
+            blob = json.dumps(buttons, ensure_ascii=False)
+            if "aid=38" not in blob and "aid%3D38" not in blob:
+                continue
+        if dialog.get("operated") is True:
+            continue
+        buttons = dialog.get("buttons") if isinstance(dialog.get("buttons"), list) else []
+        agree_url = ""
+        for btn in buttons:
+            if not isinstance(btn, dict):
+                continue
+            url = str(btn.get("url") or "")
+            if "aid=38" in url or "aid%3D38" in url:
+                agree_url = url
+                break
+        if not agree_url:
+            continue
+        return {
+            "mid": item.get("mid"),
+            "bossUid": _boss_uid_from_sendaction(agree_url)
+            or ((item.get("from") or {}).get("uid") if isinstance(item.get("from"), dict) else None),
+            "agreeUrl": agree_url,
+            "text": text,
+        }
+    return None
+
+
+def _boss_uid_from_sendaction(url: str) -> Any:
+    import re
+
+    m = re.search(r"[?&]uid=(\d+)", url)
+    return int(m.group(1)) if m else None
+
+
+def extract_encrypt_resume_ids(raw: list[dict]) -> list[str]:
+    """Collect encryptResumeId seen in chat (last sent attachment)."""
+    import re
+
+    found: list[str] = []
+    for item in raw:
+        blob = json.dumps(item, ensure_ascii=False)
+        for m in re.finditer(r"encryptResumeId[=:\\\"]+(\w[\w~-]*)", blob):
+            rid = m.group(1).rstrip("\\")
+            if rid and rid not in found:
+                found.append(rid)
+    return found
